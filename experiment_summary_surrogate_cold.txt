@@ -1,0 +1,9 @@
+Use Surrogate: True
+Baseline L/D: 118.72011251758087
+Best Airfoil: NACA 6218
+Best L/D: 245.727969348659
+XFOIL calls: 58
+ML predictions: 29
+ML skips: 0
+Cache size: 58
+Runtime: 5.39937424659729
