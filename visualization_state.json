@@ -1,0 +1,307 @@
+{
+  "status": "completed",
+  "generation": 14,
+  "generations_total": 15,
+  "best_airfoil": "NACA 5711",
+  "best_ld": 248.91485809682808,
+  "best_adjusted_fitness": 238.91485809682808,
+  "best_history": [
+    201.12227805695144,
+    204.1258741258741,
+    233.92660550458714,
+    230.71153846153848,
+    229.6218487394958,
+    244.24703891708967,
+    244.24703891708967,
+    244.24703891708967,
+    231.9661733615222,
+    248.91485809682808,
+    237.62745098039213,
+    245.727969348659,
+    228.49056603773585,
+    228.49056603773585,
+    248.91485809682808
+  ],
+  "population": [
+    {
+      "airfoil": "NACA 5711",
+      "ld": 248.91485809682808,
+      "adjusted_fitness": 238.91485809682808,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 4510",
+      "ld": 217.447619047619,
+      "adjusted_fitness": 197.447619047619,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 3914",
+      "ld": 202.22222222222223,
+      "adjusted_fitness": 192.22222222222223,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 5412",
+      "ld": 228.67424242424244,
+      "adjusted_fitness": 188.67424242424244,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 6810",
+      "ld": 215.91961023142508,
+      "adjusted_fitness": 185.91961023142508,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 6810",
+      "ld": 215.91961023142508,
+      "adjusted_fitness": 185.91961023142508,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 6218",
+      "ld": 245.727969348659,
+      "adjusted_fitness": 185.727969348659,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 6218",
+      "ld": 245.727969348659,
+      "adjusted_fitness": 185.727969348659,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 6218",
+      "ld": 245.727969348659,
+      "adjusted_fitness": 185.727969348659,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 6218",
+      "ld": 245.727969348659,
+      "adjusted_fitness": 185.727969348659,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 2615",
+      "ld": 192.71221532091096,
+      "adjusted_fitness": 182.71221532091096,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 4912",
+      "ld": 228.49056603773585,
+      "adjusted_fitness": 178.49056603773585,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 4912",
+      "ld": 228.49056603773585,
+      "adjusted_fitness": 178.49056603773585,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 4912",
+      "ld": 228.49056603773585,
+      "adjusted_fitness": 178.49056603773585,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 5413",
+      "ld": 237.62745098039213,
+      "adjusted_fitness": 177.62745098039213,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 5413",
+      "ld": 237.62745098039213,
+      "adjusted_fitness": 177.62745098039213,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 5413",
+      "ld": 237.62745098039213,
+      "adjusted_fitness": 177.62745098039213,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 4413",
+      "ld": 214.47524752475246,
+      "adjusted_fitness": 174.47524752475246,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 4610",
+      "ld": 190.1442307692308,
+      "adjusted_fitness": 170.1442307692308,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 6709",
+      "ld": 167.60000000000002,
+      "adjusted_fitness": 147.60000000000002,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 5213",
+      "ld": 177.17628705148206,
+      "adjusted_fitness": 137.17628705148206,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 4212",
+      "ld": 145.45977011494253,
+      "adjusted_fitness": 105.45977011494253,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 3211",
+      "ld": 113.75949367088607,
+      "adjusted_fitness": 103.75949367088607,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 6210",
+      "ld": 172.1368715083799,
+      "adjusted_fitness": 102.1368715083799,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 2709",
+      "ld": 104.99440089585666,
+      "adjusted_fitness": 84.99440089585666,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 8713",
+      "ld": 94.33177570093459,
+      "adjusted_fitness": 84.33177570093459,
+      "evaluation_type": "simulated",
+      "surrogate_used": true,
+      "surrogate_mean_ld": 85.33217513710784,
+      "surrogate_uncertainty": 19.58391201246741
+    },
+    {
+      "airfoil": "NACA 6918",
+      "ld": 133.48717948717947,
+      "adjusted_fitness": 73.48717948717947,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 8618",
+      "ld": 78.42978723404255,
+      "adjusted_fitness": 68.42978723404255,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    },
+    {
+      "airfoil": "NACA 7511",
+      "ld": 63.714704192159154,
+      "adjusted_fitness": 53.714704192159154,
+      "evaluation_type": "skipped",
+      "surrogate_used": true,
+      "surrogate_mean_ld": 63.714704192159154,
+      "surrogate_uncertainty": 27.647472607795176
+    },
+    {
+      "airfoil": "NACA 4918",
+      "ld": 63.202872531418315,
+      "adjusted_fitness": 13.202872531418315,
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
+    }
+  ],
+  "source_counts": {
+    "simulated": 1,
+    "cached": 28,
+    "skipped": 1,
+    "unknown": 0
+  },
+  "xfoil_calls": 1,
+  "ml_predictions": 4,
+  "ml_skips": 3,
+  "runtime_seconds": 2.646559476852417
+}

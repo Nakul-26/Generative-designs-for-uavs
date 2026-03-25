@@ -2,7 +2,11 @@ import json
 from pathlib import Path
 
 import numpy as np
-from sklearn.ensemble import RandomForestRegressor
+
+try:
+    from sklearn.ensemble import RandomForestRegressor
+except ImportError:
+    RandomForestRegressor = None
 
 
 CACHE_FILE = Path("airfoil_cache.json")
@@ -37,6 +41,13 @@ def load_dataset():
 
 
 def train_model():
+    if RandomForestRegressor is None:
+        print(
+            "scikit-learn is not installed. Running without the surrogate model. "
+            "Install it with `pip install scikit-learn` to enable ML predictions."
+        )
+        return None
+
     X, y = load_dataset()
 
     if len(X) < 10:
