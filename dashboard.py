@@ -10,6 +10,7 @@ from airfoil_geometry import generate_naca4_coordinates
 
 
 STATE_FILE = Path("visualization_state.json")
+CONTROL_FILE = Path("control.json")
 REFRESH_OPTIONS_MS = {
     "1 second": 1000,
     "2 seconds": 2000,
@@ -76,6 +77,28 @@ def load_state():
             return json.load(handle)
     except (OSError, json.JSONDecodeError):
         return None
+
+
+def load_control():
+    if not CONTROL_FILE.exists():
+        return {"paused": False}
+
+    try:
+        with open(CONTROL_FILE, "r") as handle:
+            control = json.load(handle)
+    except (OSError, json.JSONDecodeError):
+        return {"paused": False}
+
+    return {"paused": bool(control.get("paused", False))}
+
+
+def write_control(paused):
+    tmp_path = CONTROL_FILE.with_suffix(".json.tmp")
+
+    with open(tmp_path, "w") as handle:
+        json.dump({"paused": paused}, handle, indent=2)
+
+    tmp_path.replace(CONTROL_FILE)
 
 
 def build_population_frame(state):
@@ -233,6 +256,18 @@ def render_dashboard(state, population_frame, max_rows, selected_types, sort_col
 
 def main():
     st.sidebar.header("Controls")
+    control = load_control()
+    paused = control["paused"]
+
+    pause_col, resume_col = st.sidebar.columns(2)
+    if pause_col.button("Pause", width="stretch", disabled=paused):
+        write_control(True)
+        st.rerun()
+    if resume_col.button("Resume", width="stretch", disabled=not paused):
+        write_control(False)
+        st.rerun()
+
+    st.sidebar.caption(f"Optimizer: {'Paused' if paused else 'Running'}")
     refresh_label = st.sidebar.selectbox(
         "Refresh interval",
         options=list(REFRESH_OPTIONS_MS.keys()),

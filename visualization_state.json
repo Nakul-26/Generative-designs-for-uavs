@@ -252,10 +252,10 @@
       "airfoil": "NACA 8713",
       "ld": 94.33177570093459,
       "adjusted_fitness": 84.33177570093459,
-      "evaluation_type": "simulated",
-      "surrogate_used": true,
-      "surrogate_mean_ld": 85.33217513710784,
-      "surrogate_uncertainty": 19.58391201246741
+      "evaluation_type": "cached",
+      "surrogate_used": false,
+      "surrogate_mean_ld": null,
+      "surrogate_uncertainty": null
     },
     {
       "airfoil": "NACA 6918",
@@ -277,12 +277,12 @@
     },
     {
       "airfoil": "NACA 7511",
-      "ld": 63.714704192159154,
-      "adjusted_fitness": 53.714704192159154,
+      "ld": 65.45372180113368,
+      "adjusted_fitness": 55.45372180113368,
       "evaluation_type": "skipped",
       "surrogate_used": true,
-      "surrogate_mean_ld": 63.714704192159154,
-      "surrogate_uncertainty": 27.647472607795176
+      "surrogate_mean_ld": 65.45372180113368,
+      "surrogate_uncertainty": 27.546929694439378
     },
     {
       "airfoil": "NACA 4918",
@@ -295,13 +295,13 @@
     }
   ],
   "source_counts": {
-    "simulated": 1,
-    "cached": 28,
+    "simulated": 0,
+    "cached": 29,
     "skipped": 1,
     "unknown": 0
   },
-  "xfoil_calls": 1,
-  "ml_predictions": 4,
-  "ml_skips": 3,
-  "runtime_seconds": 2.646559476852417
+  "xfoil_calls": 0,
+  "ml_predictions": 2,
+  "ml_skips": 2,
+  "runtime_seconds": 4.490978479385376
 }

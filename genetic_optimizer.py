@@ -26,6 +26,7 @@ MUTATION_RATE = 0.6
 CACHE_FILE = Path("airfoil_cache.json")
 USE_SURROGATE = True
 VIS_STATE_FILE = Path("visualization_state.json")
+CONTROL_FILE = Path("control.json")
 best_airfoils = []
 xfoil_calls = 0
 ml_skips = 0
@@ -56,6 +57,32 @@ def write_visualization_state(state):
         json.dump(state, f, indent=2)
 
     os.replace(tmp_path, VIS_STATE_FILE)
+
+
+def is_paused():
+    if not CONTROL_FILE.exists():
+        return False
+
+    try:
+        with open(CONTROL_FILE, "r") as f:
+            control = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False
+
+    return bool(control.get("paused", False))
+
+
+def wait_if_paused():
+    announced_pause = False
+
+    while is_paused():
+        if not announced_pause:
+            print("Optimizer paused. Waiting for resume...")
+            announced_pause = True
+        time.sleep(1)
+
+    if announced_pause:
+        print("Optimizer resumed.")
 
 
 def mutate_airfoil(naca):
@@ -255,6 +282,9 @@ def run_ga():
     xfoil_calls = 0
     ml_predictions = 0
     ml_skips = 0
+    if not CONTROL_FILE.exists():
+        with open(CONTROL_FILE, "w") as f:
+            json.dump({"paused": False}, f, indent=2)
     model = train_model() if USE_SURROGATE else None
     population = [generate_random_naca() for _ in range(POPULATION_SIZE)]
     best_history = []
@@ -276,6 +306,7 @@ def run_ga():
     )
 
     for generation in range(GENERATIONS):
+        wait_if_paused()
         print("\nGeneration:", generation)
         generation_xfoil_before = xfoil_calls
         generation_predictions_before = ml_predictions
