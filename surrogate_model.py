@@ -32,7 +32,8 @@ def load_dataset():
     X = []
     y = []
 
-    for airfoil, ld in data.items():
+    for airfoil, entry in data.items():
+        ld = entry["ld"] if isinstance(entry, dict) else entry
         features = parse_naca(airfoil)
         X.append(features)
         y.append(ld)
