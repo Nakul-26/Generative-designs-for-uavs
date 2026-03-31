@@ -1,0 +1,30 @@
+{
+  "status": "running",
+  "generation": 0,
+  "generations_total": 15,
+  "best_airfoil": null,
+  "best_span": null,
+  "best_area": null,
+  "best_velocity": null,
+  "best_dynamic_pressure": 0,
+  "best_lift": null,
+  "best_drag": null,
+  "best_ld": null,
+  "best_adjusted_fitness": null,
+  "weight_target": 10.0,
+  "dynamic_pressure": 0,
+  "best_history": [],
+  "population": [],
+  "source_counts": {
+    "simulated": 0,
+    "cached": 0,
+    "skipped": 0,
+    "unknown": 0
+  },
+  "xfoil_calls": 0,
+  "ml_predictions": 0,
+  "ml_skips": 0,
+  "generation_xfoil_calls": 0,
+  "generation_predictions": 0,
+  "generation_ml_skips": 0
+}

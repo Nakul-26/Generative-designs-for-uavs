@@ -1,9 +1,17 @@
 Use Surrogate: True
-Baseline L/D: 118.72011251758087
-Best Airfoil: NACA 5711
-Best L/D: 248.91485809682808
+Weight Target: 10.0
+Best Velocity: 16.49
+Best Dynamic Pressure: 166.55106124999998
+Baseline Wing: NACA 2412 | b=1.50m | S=0.40m^2 | v=12.00m/s
+Baseline L/D: 15.475370915984703
+Baseline Lift: 29.779848
+Best Airfoil: NACA 5219
+Best Wing Span: 3.0
+Best Wing Area: 0.1
+Best Lift: 19.849555479775
+Best L/D: 109.74107665246504
 XFOIL calls: 0
-ML predictions: 2
-ML skips: 2
-Cache size: 193
-Runtime: 4.490978479385376
+ML predictions: 0
+ML skips: 0
+Cache size: 314
+Runtime: 1.2686028480529785

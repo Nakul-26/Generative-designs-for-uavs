@@ -121,6 +121,7 @@ def build_population_frame(state):
                 "label",
                 "wing_span",
                 "wing_area",
+                "velocity",
                 "ld",
                 "adjusted_fitness",
                 "lift",
@@ -244,12 +245,21 @@ def render_dashboard(
     best_adjusted_fitness = state.get("best_adjusted_fitness")
     weight_target = state.get("weight_target")
     dynamic_pressure = state.get("dynamic_pressure")
+    best_velocity = state.get("best_velocity")
+    best_dynamic_pressure = state.get("best_dynamic_pressure")
     source_counts = state.get("source_counts", {})
-    best_label = (
-        f"{best_airfoil} | b={best_span:.2f}m | S={best_area:.2f}m^2"
-        if best_airfoil and best_span is not None and best_area is not None
-        else best_airfoil
-    )
+    has_best_geometry = best_airfoil and best_span is not None and best_area is not None
+    if has_best_geometry:
+        label_parts = [
+            f"{best_airfoil}",
+            f"b={best_span:.2f}m",
+            f"S={best_area:.2f}m^2",
+        ]
+        if best_velocity is not None:
+            label_parts.append(f"v={best_velocity:.2f}m/s")
+        best_label = " | ".join(label_parts)
+    else:
+        best_label = best_airfoil
 
     st.markdown(
         f"""
@@ -261,12 +271,14 @@ def render_dashboard(
         unsafe_allow_html=True,
     )
 
-    col1, col2, col3, col4, col5 = st.columns(5)
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Generation", generation if generation is not None else "-")
     col2.metric("Best L/D", f"{best_ld:.2f}" if best_ld is not None else "-")
     col3.metric("Best Airfoil", best_airfoil or "-")
     col4.metric("Best Span (m)", f"{best_span:.2f}" if best_span is not None else "-")
     col5.metric("Best Area (m^2)", f"{best_area:.2f}" if best_area is not None else "-")
+    best_velocity_display = f"{best_velocity:.2f}" if best_velocity is not None else "-"
+    col6.metric("Speed (m/s)", best_velocity_display)
 
     if beginner_mode:
         st.success("System is automatically designing better wings.")
@@ -333,14 +345,15 @@ def render_dashboard(
 
         if not beginner_mode:
             st.subheader("Detailed Population Data")
-            display_columns = [
-                "label",
-                "ld",
-                "wing_span",
-                "wing_area",
-                "lift",
-                "drag",
-                "lift_margin",
+        display_columns = [
+            "label",
+            "ld",
+            "wing_span",
+            "wing_area",
+            "velocity",
+            "lift",
+            "drag",
+            "lift_margin",
                 "adjusted_fitness",
                 "evaluation_type",
             ]
@@ -445,6 +458,8 @@ def render_dashboard(
                 "best_airfoil": best_airfoil,
                 "best_span": best_span,
                 "best_area": best_area,
+                "best_velocity": best_velocity,
+                "best_dynamic_pressure": best_dynamic_pressure,
                 "best_lift": best_lift,
                 "weight_target": weight_target,
                 "dynamic_pressure": dynamic_pressure,

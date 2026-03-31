@@ -33,8 +33,10 @@ SPAN_MIN = 0.5
 SPAN_MAX = 3.0
 AREA_MIN = 0.1
 AREA_MAX = 1.0
-WEIGHT_NEWTONS = 10.0
-DYNAMIC_PRESSURE = 15.0
+VELOCITY_MIN = 5.0
+VELOCITY_MAX = 25.0
+RHO = 1.225
+WEIGHT = 10.0
 OSWALD_EFFICIENCY = 0.85
 
 best_designs = []
@@ -61,12 +63,8 @@ fitness_cache = load_fitness_cache()
 
 
 def write_visualization_state(state):
-    tmp_path = VIS_STATE_FILE.with_suffix(".json.tmp")
-
-    with open(tmp_path, "w") as f:
+    with open(VIS_STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
-
-    os.replace(tmp_path, VIS_STATE_FILE)
 
 
 def is_running():
@@ -103,11 +101,20 @@ def round_design_value(value):
     return round(value, 3)
 
 
-def create_design(airfoil, wing_span, wing_area):
+def round_velocity(value):
+    return round(value, 2)
+
+
+def clamp_velocity(value):
+    return clamp(value, VELOCITY_MIN, VELOCITY_MAX)
+
+
+def create_design(airfoil, wing_span, wing_area, velocity):
     return {
         "airfoil": airfoil,
         "wing_span": round_design_value(clamp(wing_span, SPAN_MIN, SPAN_MAX)),
         "wing_area": round_design_value(clamp(wing_area, AREA_MIN, AREA_MAX)),
+        "velocity": round_velocity(clamp_velocity(velocity)),
     }
 
 
@@ -116,6 +123,7 @@ def clone_design(design):
         design["airfoil"],
         design["wing_span"],
         design["wing_area"],
+        design["velocity"],
     )
 
 
@@ -124,6 +132,7 @@ def format_design_label(design):
         f"{design['airfoil']} | "
         f"b={design['wing_span']:.2f}m | "
         f"S={design['wing_area']:.2f}m^2"
+        f" | v={design['velocity']:.2f}m/s"
     )
 
 
@@ -132,6 +141,7 @@ def generate_random_design():
         generate_random_naca(),
         random.uniform(SPAN_MIN, SPAN_MAX),
         random.uniform(AREA_MIN, AREA_MAX),
+        random.uniform(VELOCITY_MIN, VELOCITY_MAX),
     )
 
 
@@ -165,6 +175,9 @@ def mutate_design(design):
     mutated["wing_area"] = round_design_value(
         clamp(mutated["wing_area"] + random.uniform(-0.08, 0.08), AREA_MIN, AREA_MAX)
     )
+    mutated["velocity"] = round_velocity(
+        clamp_velocity(mutated["velocity"] + random.uniform(-1.5, 1.5))
+    )
 
     return mutated
 
@@ -195,6 +208,13 @@ def crossover_design(parent1, parent2):
                 parent1["wing_area"],
                 parent2["wing_area"],
                 (parent1["wing_area"] + parent2["wing_area"]) / 2,
+            ]
+        ),
+        random.choice(
+            [
+                parent1["velocity"],
+                parent2["velocity"],
+                (parent1["velocity"] + parent2["velocity"]) / 2,
             ]
         ),
     )
@@ -299,7 +319,7 @@ def score_design(design, airfoil_details):
             "score": 0,
             "lift": 0,
             "drag": 0,
-            "lift_margin": -WEIGHT_NEWTONS,
+            "lift_margin": -WEIGHT,
             "constraint_satisfied": False,
             "aspect_ratio": aspect_ratio,
             "base_ld": base_ld,
@@ -308,10 +328,12 @@ def score_design(design, airfoil_details):
         }
 
     total_cd = base_cd + induced_drag_coefficient(cl, aspect_ratio)
-    lift = DYNAMIC_PRESSURE * cl * wing_area
-    drag = DYNAMIC_PRESSURE * total_cd * wing_area
+    velocity = design["velocity"]
+    q = 0.5 * RHO * velocity ** 2
+    lift = q * cl * wing_area
+    drag = q * total_cd * wing_area
     ld = lift / drag if drag > 0 else 0
-    constraint_satisfied = lift >= WEIGHT_NEWTONS
+    constraint_satisfied = lift >= WEIGHT
 
     if not constraint_satisfied:
         ld *= 0.1
@@ -320,12 +342,13 @@ def score_design(design, airfoil_details):
         "score": ld,
         "lift": lift,
         "drag": drag,
-        "lift_margin": lift - WEIGHT_NEWTONS,
+        "lift_margin": lift - WEIGHT,
         "constraint_satisfied": constraint_satisfied,
         "aspect_ratio": aspect_ratio,
         "base_ld": base_ld,
         "base_cd": base_cd,
         "total_cd": total_cd,
+        "dynamic_pressure": q,
     }
 
 
@@ -408,6 +431,7 @@ def evaluate_population(population, model=None):
                 "wing_span": design["wing_span"],
                 "wing_area": design["wing_area"],
                 "label": format_design_label(design),
+                "velocity": design["velocity"],
                 "raw_score": design_score["score"],
                 "adjusted_score": adjusted_score,
                 "lift": design_score["lift"],
@@ -418,6 +442,7 @@ def evaluate_population(population, model=None):
                 "base_ld": design_score["base_ld"],
                 "base_cd": design_score["base_cd"],
                 "total_cd": design_score["total_cd"],
+                "dynamic_pressure": design_score.get("dynamic_pressure"),
                 "evaluation_type": airfoil_details["evaluation_type"],
                 "surrogate_used": airfoil_details["surrogate_used"],
                 "surrogate_mean_ld": airfoil_details["surrogate_mean_ld"],
@@ -435,6 +460,7 @@ def population_state(scored_population):
             "label": entry["label"],
             "wing_span": entry["wing_span"],
             "wing_area": entry["wing_area"],
+            "velocity": entry["velocity"],
             "ld": entry["raw_score"],
             "adjusted_fitness": entry["adjusted_score"],
             "lift": entry["lift"],
@@ -479,12 +505,14 @@ def run_ga():
             "best_airfoil": None,
             "best_span": None,
             "best_area": None,
+            "best_velocity": None,
+            "best_dynamic_pressure": 0,
             "best_lift": None,
             "best_drag": None,
             "best_ld": None,
             "best_adjusted_fitness": None,
-            "weight_target": WEIGHT_NEWTONS,
-            "dynamic_pressure": DYNAMIC_PRESSURE,
+            "weight_target": WEIGHT,
+            "dynamic_pressure": 0,
             "best_history": [],
             "population": [],
             "source_counts": {"simulated": 0, "cached": 0, "skipped": 0, "unknown": 0},
@@ -530,13 +558,15 @@ def run_ga():
                 best["raw_score"],
                 best["wing_span"],
                 best["wing_area"],
+                best["velocity"],
                 best["lift"],
             )
         )
         print("Best wing design:", best["label"])
         print("Best L/D this generation:", best["raw_score"])
         print("Best adjusted fitness this generation:", best["adjusted_score"])
-        print("Lift / target:", best["lift"], "/", WEIGHT_NEWTONS)
+        print("Lift / target:", best["lift"], "/", WEIGHT)
+        print("Speed (m/s):", best["velocity"])
 
         source_counts = {"simulated": 0, "cached": 0, "skipped": 0, "unknown": 0}
         for entry in scored_population:
@@ -550,12 +580,14 @@ def run_ga():
                 "best_airfoil": best["airfoil"],
                 "best_span": best["wing_span"],
                 "best_area": best["wing_area"],
+                "best_velocity": best["velocity"],
+                "best_dynamic_pressure": best.get("dynamic_pressure"),
                 "best_lift": best["lift"],
                 "best_drag": best["drag"],
                 "best_ld": best["raw_score"],
                 "best_adjusted_fitness": best["adjusted_score"],
-                "weight_target": WEIGHT_NEWTONS,
-                "dynamic_pressure": DYNAMIC_PRESSURE,
+                "weight_target": WEIGHT,
+                "dynamic_pressure": best.get("dynamic_pressure"),
                 "best_history": best_history,
                 "population": population_state(scored_population),
                 "source_counts": source_counts,
@@ -569,11 +601,13 @@ def run_ga():
         )
 
         survivors = [
-            create_design(entry["airfoil"], entry["wing_span"], entry["wing_area"])
+            create_design(entry["airfoil"], entry["wing_span"], entry["wing_area"], entry["velocity"])
             for entry in scored_population[: POPULATION_SIZE // 2]
         ]
 
-        new_population = [create_design(best["airfoil"], best["wing_span"], best["wing_area"])] + survivors.copy()
+        new_population = [
+            create_design(best["airfoil"], best["wing_span"], best["wing_area"], best["velocity"])
+        ] + survivors.copy()
 
         while len(new_population) < POPULATION_SIZE:
             parent1 = random.choice(survivors)
@@ -608,13 +642,13 @@ def run_ga():
 
     with open("optimization_stats.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["generation", "best_LD", "wing_span_m", "wing_area_m2", "lift"])
+        writer.writerow(["generation", "best_LD", "wing_span_m", "wing_area_m2", "velocity_m_s", "lift"])
         writer.writerows(stats)
 
     plot_airfoil(best["airfoil"])
     print("Saved best airfoil plot to", Path("best_airfoil.png"))
 
-    baseline_design = create_design("NACA 2412", 1.5, 0.4)
+    baseline_design = create_design("NACA 2412", 1.5, 0.4, 12.0)
     baseline_airfoil_details = evaluate_airfoil_details(baseline_design["airfoil"], model)
     baseline_result = score_design(baseline_design, baseline_airfoil_details)
     save_fitness_cache()
@@ -625,12 +659,15 @@ def run_ga():
     print("Best optimized wing:", best["label"])
     print("Best optimized L/D:", best["raw_score"])
     print("Best optimized lift:", best["lift"])
+    print("Best optimized speed (m/s):", best["velocity"])
     print("\n--- Optimization Statistics ---")
     print("Total XFOIL simulations:", xfoil_calls)
     print("ML predictions:", ml_predictions)
     print("ML skipped designs:", ml_skips)
     print("Cache size:", len(fitness_cache))
     print("Runtime:", runtime, "seconds")
+
+    best_dynamic_pressure = best.get("dynamic_pressure", 0)
 
     write_visualization_state(
         {
@@ -640,12 +677,14 @@ def run_ga():
             "best_airfoil": best["airfoil"],
             "best_span": best["wing_span"],
             "best_area": best["wing_area"],
+            "best_velocity": best["velocity"],
+            "best_dynamic_pressure": best.get("dynamic_pressure"),
             "best_lift": best["lift"],
             "best_drag": best["drag"],
             "best_ld": best["raw_score"],
             "best_adjusted_fitness": best["adjusted_score"],
-            "weight_target": WEIGHT_NEWTONS,
-            "dynamic_pressure": DYNAMIC_PRESSURE,
+            "weight_target": WEIGHT,
+            "dynamic_pressure": best.get("dynamic_pressure"),
             "best_history": best_history,
             "population": population_state(scored_population),
             "source_counts": source_counts,
@@ -658,8 +697,9 @@ def run_ga():
 
     with open("experiment_summary.txt", "w") as f:
         f.write(f"Use Surrogate: {USE_SURROGATE}\n")
-        f.write(f"Weight Target: {WEIGHT_NEWTONS}\n")
-        f.write(f"Dynamic Pressure: {DYNAMIC_PRESSURE}\n")
+        f.write(f"Weight Target: {WEIGHT}\n")
+        f.write(f"Best Velocity: {best['velocity']}\n")
+        f.write(f"Best Dynamic Pressure: {best_dynamic_pressure}\n")
         f.write(f"Baseline Wing: {format_design_label(baseline_design)}\n")
         f.write(f"Baseline L/D: {baseline_result['score']}\n")
         f.write(f"Baseline Lift: {baseline_result['lift']}\n")
