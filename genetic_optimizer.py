@@ -507,7 +507,9 @@ def run_ga():
             "best_area": None,
             "best_velocity": None,
             "best_dynamic_pressure": 0,
+            "best_feasible": None,
             "best_lift": None,
+            "best_weight": WEIGHT,
             "best_drag": None,
             "best_ld": None,
             "best_adjusted_fitness": None,
@@ -572,6 +574,7 @@ def run_ga():
         for entry in scored_population:
             source_counts[entry["evaluation_type"]] = source_counts.get(entry["evaluation_type"], 0) + 1
 
+        feasible = best["lift"] >= WEIGHT
         write_visualization_state(
             {
                 "status": "running",
@@ -582,7 +585,9 @@ def run_ga():
                 "best_area": best["wing_area"],
                 "best_velocity": best["velocity"],
                 "best_dynamic_pressure": best.get("dynamic_pressure"),
+                "best_feasible": feasible,
                 "best_lift": best["lift"],
+                "best_weight": WEIGHT,
                 "best_drag": best["drag"],
                 "best_ld": best["raw_score"],
                 "best_adjusted_fitness": best["adjusted_score"],
@@ -668,6 +673,7 @@ def run_ga():
     print("Runtime:", runtime, "seconds")
 
     best_dynamic_pressure = best.get("dynamic_pressure", 0)
+    feasible = best["lift"] >= WEIGHT
 
     write_visualization_state(
         {
@@ -679,7 +685,9 @@ def run_ga():
             "best_area": best["wing_area"],
             "best_velocity": best["velocity"],
             "best_dynamic_pressure": best.get("dynamic_pressure"),
+            "best_feasible": feasible,
             "best_lift": best["lift"],
+            "best_weight": WEIGHT,
             "best_drag": best["drag"],
             "best_ld": best["raw_score"],
             "best_adjusted_fitness": best["adjusted_score"],

@@ -240,9 +240,11 @@ def render_dashboard(
     best_airfoil = state.get("best_airfoil")
     best_span = state.get("best_span")
     best_area = state.get("best_area")
+    best_feasible = state.get("best_feasible")
     best_lift = state.get("best_lift")
     best_ld = state.get("best_ld")
     best_adjusted_fitness = state.get("best_adjusted_fitness")
+    best_weight = state.get("best_weight", state.get("weight_target"))
     weight_target = state.get("weight_target")
     dynamic_pressure = state.get("dynamic_pressure")
     best_velocity = state.get("best_velocity")
@@ -282,6 +284,16 @@ def render_dashboard(
 
     if beginner_mode:
         st.success("System is automatically designing better wings.")
+
+    if best_feasible is True:
+        st.success("Flight Feasible (Lift >= Weight)")
+    elif best_feasible is False:
+        st.error("Not Feasible (Lift < Weight)")
+
+    if best_lift is not None:
+        st.write(f"Lift: {round(best_lift, 2)} N")
+    if best_weight is not None:
+        st.write(f"Weight: {round(best_weight, 2)} N")
 
     if explain_mode:
         st.info(
@@ -354,30 +366,30 @@ def render_dashboard(
             "lift",
             "drag",
             "lift_margin",
-                "adjusted_fitness",
-                "evaluation_type",
-            ]
-            if show_surrogate_columns:
-                display_columns.extend(["surrogate_mean_ld", "surrogate_uncertainty"])
-            st.dataframe(
-                chart_frame[display_columns],
-                width="stretch",
-                hide_index=True,
-            )
+            "adjusted_fitness",
+            "evaluation_type",
+        ]
+        if show_surrogate_columns:
+            display_columns.extend(["surrogate_mean_ld", "surrogate_uncertainty"])
+        st.dataframe(
+            chart_frame[display_columns],
+            width="stretch",
+            hide_index=True,
+        )
 
-            if show_surrogate_columns:
-                surrogate_columns = [
-                    column
-                    for column in ["label", "surrogate_mean_ld", "surrogate_uncertainty"]
-                    if column in chart_frame.columns
-                ]
-                if len(surrogate_columns) > 1:
-                    st.subheader("AI / Surrogate Details")
-                    st.dataframe(
-                        chart_frame[surrogate_columns],
-                        width="stretch",
-                        hide_index=True,
-                    )
+        if show_surrogate_columns:
+            surrogate_columns = [
+                column
+                for column in ["label", "surrogate_mean_ld", "surrogate_uncertainty"]
+                if column in chart_frame.columns
+            ]
+            if len(surrogate_columns) > 1:
+                st.subheader("AI / Surrogate Details")
+                st.dataframe(
+                    chart_frame[surrogate_columns],
+                    width="stretch",
+                    hide_index=True,
+                )
 
     with right:
         st.subheader("What Does The Best Wing Look Like?")
@@ -460,7 +472,9 @@ def render_dashboard(
                 "best_area": best_area,
                 "best_velocity": best_velocity,
                 "best_dynamic_pressure": best_dynamic_pressure,
+                "best_feasible": best_feasible,
                 "best_lift": best_lift,
+                "best_weight": best_weight,
                 "weight_target": weight_target,
                 "dynamic_pressure": dynamic_pressure,
                 "best_ld": best_ld,
