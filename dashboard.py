@@ -245,11 +245,18 @@ def render_dashboard(
     best_ld = state.get("best_ld")
     best_adjusted_fitness = state.get("best_adjusted_fitness")
     best_weight = state.get("best_weight", state.get("weight_target"))
+    best_lift_margin = state.get("best_lift_margin")
     weight_target = state.get("weight_target")
     dynamic_pressure = state.get("dynamic_pressure")
     best_velocity = state.get("best_velocity")
     best_dynamic_pressure = state.get("best_dynamic_pressure")
     source_counts = state.get("source_counts", {})
+    if (
+        best_lift_margin is None
+        and best_lift is not None
+        and best_weight not in (None, 0)
+    ):
+        best_lift_margin = (best_lift - best_weight) / best_weight * 100
     has_best_geometry = best_airfoil and best_span is not None and best_area is not None
     if has_best_geometry:
         label_parts = [
@@ -294,6 +301,14 @@ def render_dashboard(
         st.write(f"Lift: {round(best_lift, 2)} N")
     if best_weight is not None:
         st.write(f"Weight: {round(best_weight, 2)} N")
+    if best_lift_margin is not None:
+        st.metric("Lift Margin (%)", round(best_lift_margin, 2))
+        if best_lift_margin > 20:
+            st.success("🟢 Strong lift margin")
+        elif best_lift_margin > 0:
+            st.warning("🟡 Just enough lift")
+        else:
+            st.error("🔴 Cannot sustain flight")
 
     if explain_mode:
         st.info(
@@ -475,6 +490,7 @@ def render_dashboard(
                 "best_feasible": best_feasible,
                 "best_lift": best_lift,
                 "best_weight": best_weight,
+                "best_lift_margin": best_lift_margin,
                 "weight_target": weight_target,
                 "dynamic_pressure": dynamic_pressure,
                 "best_ld": best_ld,
