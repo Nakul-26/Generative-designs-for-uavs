@@ -332,6 +332,7 @@ def score_design(design, airfoil_details):
     q = 0.5 * RHO * velocity ** 2
     lift = q * cl * wing_area
     drag = q * total_cd * wing_area
+    power = drag * velocity
     ld = lift / drag if drag > 0 else 0
     constraint_satisfied = lift >= WEIGHT
 
@@ -342,6 +343,7 @@ def score_design(design, airfoil_details):
         "score": ld,
         "lift": lift,
         "drag": drag,
+        "power": power,
         "lift_margin": lift - WEIGHT,
         "constraint_satisfied": constraint_satisfied,
         "aspect_ratio": aspect_ratio,
@@ -512,6 +514,7 @@ def run_ga():
             "best_weight": WEIGHT,
             "best_lift_margin": None,
             "best_drag": None,
+            "best_power": None,
             "best_ld": None,
             "best_adjusted_fitness": None,
             "weight_target": WEIGHT,
@@ -592,6 +595,7 @@ def run_ga():
                 "best_weight": WEIGHT,
                 "best_lift_margin": lift_margin,
                 "best_drag": best["drag"],
+                "best_power": best["power"],
                 "best_ld": best["raw_score"],
                 "best_adjusted_fitness": best["adjusted_score"],
                 "weight_target": WEIGHT,
@@ -694,6 +698,7 @@ def run_ga():
             "best_weight": WEIGHT,
             "best_lift_margin": lift_margin,
             "best_drag": best["drag"],
+            "best_power": best["power"],
             "best_ld": best["raw_score"],
             "best_adjusted_fitness": best["adjusted_score"],
             "weight_target": WEIGHT,

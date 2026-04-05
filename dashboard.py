@@ -246,6 +246,7 @@ def render_dashboard(
     best_adjusted_fitness = state.get("best_adjusted_fitness")
     best_weight = state.get("best_weight", state.get("weight_target"))
     best_lift_margin = state.get("best_lift_margin")
+    best_power = state.get("best_power")
     weight_target = state.get("weight_target")
     dynamic_pressure = state.get("dynamic_pressure")
     best_velocity = state.get("best_velocity")
@@ -309,6 +310,9 @@ def render_dashboard(
             st.warning("🟡 Just enough lift")
         else:
             st.error("🔴 Cannot sustain flight")
+
+    if best_power is not None:
+        st.metric("Power (W)", round(best_power, 2))
 
     if explain_mode:
         st.info(
@@ -491,6 +495,7 @@ def render_dashboard(
                 "best_lift": best_lift,
                 "best_weight": best_weight,
                 "best_lift_margin": best_lift_margin,
+                "best_power": best_power,
                 "weight_target": weight_target,
                 "dynamic_pressure": dynamic_pressure,
                 "best_ld": best_ld,
