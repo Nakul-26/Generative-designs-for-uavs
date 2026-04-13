@@ -39,6 +39,9 @@ RHO = 1.225
 WEIGHT = 10.0
 OSWALD_EFFICIENCY = 0.85
 
+# battery capacity (default) in Watt-hours (Wh)
+BATTERY_CAPACITY_WH = 200.0
+
 best_designs = []
 xfoil_calls = 0
 ml_skips = 0
@@ -78,6 +81,21 @@ def is_running():
         return True
 
     return bool(control.get("running", True))
+
+
+def load_battery_capacity_wh():
+    """Return battery capacity in Wh. Preference: CONTROL_FILE override, else default constant."""
+    try:
+        if CONTROL_FILE.exists():
+            with open(CONTROL_FILE, "r") as f:
+                control = json.load(f)
+            val = control.get("battery_capacity_Wh")
+            if isinstance(val, (int, float)) and val > 0:
+                return float(val)
+    except (OSError, json.JSONDecodeError):
+        pass
+
+    return BATTERY_CAPACITY_WH
 
 
 def wait_until_running():
@@ -498,6 +516,8 @@ def run_ga():
     population = [generate_random_design() for _ in range(POPULATION_SIZE)]
     best_history = []
     stats = []
+    # expose battery capacity (can be overridden via control.json)
+    battery_capacity_initial = load_battery_capacity_wh()
 
     write_visualization_state(
         {
@@ -528,6 +548,10 @@ def run_ga():
             "generation_xfoil_calls": 0,
             "generation_predictions": 0,
             "generation_ml_skips": 0,
+            "battery_capacity_Wh": battery_capacity_initial,
+            "best_battery_energy_J": battery_capacity_initial * 3600.0,
+            "best_flight_time_s": None,
+            "best_flight_time_min": None,
         }
     )
 
@@ -580,6 +604,23 @@ def run_ga():
 
         feasible = best["lift"] >= WEIGHT
         lift_margin = (best["lift"] - WEIGHT) / WEIGHT * 100
+        # compute estimated flight time from battery capacity and current best power
+        battery_capacity_now = load_battery_capacity_wh()
+        battery_energy_j = battery_capacity_now * 3600.0
+        # determine best power: prefer explicit field, else compute from drag*velocity
+        best_power_val = best.get("power")
+        if best_power_val is None and best.get("drag") is not None and best.get("velocity") is not None:
+            best_power_val = best.get("drag") * best.get("velocity")
+        if best_power_val is None or best_power_val <= 0:
+            best_flight_time_s = None
+        else:
+            best_flight_time_s = battery_energy_j / best_power_val
+        if best_flight_time_s is not None:
+            best_flight_time_min = best_flight_time_s / 60.0
+            # cap unrealistic endurance at 300 minutes (5 hours)
+            best_flight_time_min = min(best_flight_time_min, 300.0)
+        else:
+            best_flight_time_min = None
         write_visualization_state(
             {
                 "status": "running",
@@ -595,7 +636,11 @@ def run_ga():
                 "best_weight": WEIGHT,
                 "best_lift_margin": lift_margin,
                 "best_drag": best["drag"],
-                "best_power": best["power"],
+                "best_power": best_power_val if best_power_val is not None else (best.get("drag") * best.get("velocity") if best.get("drag") is not None and best.get("velocity") is not None else None),
+                "battery_capacity_Wh": battery_capacity_now,
+                "best_battery_energy_J": battery_energy_j,
+                "best_flight_time_s": best_flight_time_s,
+                "best_flight_time_min": best_flight_time_min,
                 "best_ld": best["raw_score"],
                 "best_adjusted_fitness": best["adjusted_score"],
                 "weight_target": WEIGHT,
@@ -682,6 +727,22 @@ def run_ga():
     best_dynamic_pressure = best.get("dynamic_pressure", 0)
     feasible = best["lift"] >= WEIGHT
     lift_margin = (best["lift"] - WEIGHT) / WEIGHT * 100
+    # compute final estimated flight time (respect control.json override)
+    battery_capacity_now = load_battery_capacity_wh()
+    battery_energy_j = battery_capacity_now * 3600.0
+    # determine best power: prefer explicit field, else compute from drag*velocity
+    best_power_val = best.get("power")
+    if best_power_val is None and best.get("drag") is not None and best.get("velocity") is not None:
+        best_power_val = best.get("drag") * best.get("velocity")
+    if best_power_val is None or best_power_val <= 0:
+        best_flight_time_s = None
+    else:
+        best_flight_time_s = battery_energy_j / best_power_val
+    if best_flight_time_s is not None:
+        best_flight_time_min = best_flight_time_s / 60.0
+        best_flight_time_min = min(best_flight_time_min, 300.0)
+    else:
+        best_flight_time_min = None
 
     write_visualization_state(
         {
@@ -698,7 +759,11 @@ def run_ga():
             "best_weight": WEIGHT,
             "best_lift_margin": lift_margin,
             "best_drag": best["drag"],
-            "best_power": best["power"],
+            "best_power": best_power_val if best_power_val is not None else (best.get("drag") * best.get("velocity") if best.get("drag") is not None and best.get("velocity") is not None else None),
+            "battery_capacity_Wh": battery_capacity_now,
+            "best_battery_energy_J": battery_energy_j,
+            "best_flight_time_s": best_flight_time_s,
+            "best_flight_time_min": best_flight_time_min,
             "best_ld": best["raw_score"],
             "best_adjusted_fitness": best["adjusted_score"],
             "weight_target": WEIGHT,

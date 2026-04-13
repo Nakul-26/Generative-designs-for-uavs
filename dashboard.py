@@ -314,6 +314,16 @@ def render_dashboard(
     if best_power is not None:
         st.metric("Power (W)", round(best_power, 2))
 
+    best_flight_time_min = state.get("best_flight_time_min")
+    if best_flight_time_min is not None:
+        st.metric("Estimated Endurance (min)", round(best_flight_time_min, 2))
+    else:
+        st.metric("Estimated Endurance (min)", "-")
+
+    battery_capacity_wh = state.get("battery_capacity_Wh")
+    if battery_capacity_wh is not None:
+        st.write(f"Battery Capacity: {battery_capacity_wh:.0f} Wh")
+
     if explain_mode:
         st.info(
             "Generation = current optimization step. "
@@ -496,6 +506,10 @@ def render_dashboard(
                 "best_weight": best_weight,
                 "best_lift_margin": best_lift_margin,
                 "best_power": best_power,
+                "best_flight_time_s": state.get("best_flight_time_s"),
+                "best_flight_time_min": state.get("best_flight_time_min"),
+                "battery_capacity_Wh": state.get("battery_capacity_Wh"),
+                "best_battery_energy_J": state.get("best_battery_energy_J"),
                 "weight_target": weight_target,
                 "dynamic_pressure": dynamic_pressure,
                 "best_ld": best_ld,
