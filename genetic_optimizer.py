@@ -36,11 +36,14 @@ AREA_MAX = 1.0
 VELOCITY_MIN = 5.0
 VELOCITY_MAX = 25.0
 RHO = 1.225
-WEIGHT = 10.0
+PAYLOAD_WEIGHT = 2.0
+STRUCTURE_WEIGHT = 4.0
+BATTERY_WEIGHT_PER_WH = 0.02
+BATTERY_MIN_WH = 100.0
+BATTERY_MAX_WH = 500.0
+DEFAULT_BATTERY_WH = 200.0
+WEIGHT = PAYLOAD_WEIGHT + STRUCTURE_WEIGHT + BATTERY_WEIGHT_PER_WH * DEFAULT_BATTERY_WH
 OSWALD_EFFICIENCY = 0.85
-
-# battery capacity (default) in Watt-hours (Wh)
-BATTERY_CAPACITY_WH = 200.0
 
 best_designs = []
 xfoil_calls = 0
@@ -83,21 +86,6 @@ def is_running():
     return bool(control.get("running", True))
 
 
-def load_battery_capacity_wh():
-    """Return battery capacity in Wh. Preference: CONTROL_FILE override, else default constant."""
-    try:
-        if CONTROL_FILE.exists():
-            with open(CONTROL_FILE, "r") as f:
-                control = json.load(f)
-            val = control.get("battery_capacity_Wh")
-            if isinstance(val, (int, float)) and val > 0:
-                return float(val)
-    except (OSError, json.JSONDecodeError):
-        pass
-
-    return BATTERY_CAPACITY_WH
-
-
 def wait_until_running():
     announced_stop = False
 
@@ -127,12 +115,33 @@ def clamp_velocity(value):
     return clamp(value, VELOCITY_MIN, VELOCITY_MAX)
 
 
-def create_design(airfoil, wing_span, wing_area, velocity):
+def round_battery_wh(value):
+    return round(value, 1)
+
+
+def clamp_battery_wh(value):
+    return clamp(value, BATTERY_MIN_WH, BATTERY_MAX_WH)
+
+
+def battery_weight(battery_wh):
+    return BATTERY_WEIGHT_PER_WH * battery_wh
+
+
+def design_weight(battery_wh):
+    return PAYLOAD_WEIGHT + STRUCTURE_WEIGHT + battery_weight(battery_wh)
+
+
+def battery_energy_j(battery_wh):
+    return battery_wh * 3600.0
+
+
+def create_design(airfoil, wing_span, wing_area, velocity, battery_wh):
     return {
         "airfoil": airfoil,
         "wing_span": round_design_value(clamp(wing_span, SPAN_MIN, SPAN_MAX)),
         "wing_area": round_design_value(clamp(wing_area, AREA_MIN, AREA_MAX)),
         "velocity": round_velocity(clamp_velocity(velocity)),
+        "battery_wh": round_battery_wh(clamp_battery_wh(battery_wh)),
     }
 
 
@@ -142,6 +151,7 @@ def clone_design(design):
         design["wing_span"],
         design["wing_area"],
         design["velocity"],
+        design.get("battery_wh", DEFAULT_BATTERY_WH),
     )
 
 
@@ -151,6 +161,7 @@ def format_design_label(design):
         f"b={design['wing_span']:.2f}m | "
         f"S={design['wing_area']:.2f}m^2"
         f" | v={design['velocity']:.2f}m/s"
+        f" | batt={design['battery_wh']:.1f}Wh"
     )
 
 
@@ -160,6 +171,7 @@ def generate_random_design():
         random.uniform(SPAN_MIN, SPAN_MAX),
         random.uniform(AREA_MIN, AREA_MAX),
         random.uniform(VELOCITY_MIN, VELOCITY_MAX),
+        random.uniform(BATTERY_MIN_WH, BATTERY_MAX_WH),
     )
 
 
@@ -195,6 +207,9 @@ def mutate_design(design):
     )
     mutated["velocity"] = round_velocity(
         clamp_velocity(mutated["velocity"] + random.uniform(-1.5, 1.5))
+    )
+    mutated["battery_wh"] = round_battery_wh(
+        clamp_battery_wh(mutated["battery_wh"] + random.uniform(-40.0, 40.0))
     )
 
     return mutated
@@ -233,6 +248,13 @@ def crossover_design(parent1, parent2):
                 parent1["velocity"],
                 parent2["velocity"],
                 (parent1["velocity"] + parent2["velocity"]) / 2,
+            ]
+        ),
+        random.choice(
+            [
+                parent1["battery_wh"],
+                parent2["battery_wh"],
+                (parent1["battery_wh"] + parent2["battery_wh"]) / 2,
             ]
         ),
     )
@@ -327,6 +349,8 @@ def induced_drag_coefficient(cl, aspect_ratio):
 def score_design(design, airfoil_details):
     wing_area = design["wing_area"]
     wing_span = design["wing_span"]
+    battery_wh = design["battery_wh"]
+    weight = design_weight(battery_wh)
     aspect_ratio = wing_span ** 2 / wing_area
     cl = airfoil_details.get("cl") or 0
     base_cd = airfoil_details.get("cd")
@@ -337,7 +361,13 @@ def score_design(design, airfoil_details):
             "score": 0,
             "lift": 0,
             "drag": 0,
-            "lift_margin": -WEIGHT,
+            "power": None,
+            "weight": weight,
+            "battery_weight": battery_weight(battery_wh),
+            "battery_energy_j": battery_energy_j(battery_wh),
+            "flight_time_s": None,
+            "flight_time_min": None,
+            "lift_margin": -weight,
             "constraint_satisfied": False,
             "aspect_ratio": aspect_ratio,
             "base_ld": base_ld,
@@ -352,7 +382,9 @@ def score_design(design, airfoil_details):
     drag = q * total_cd * wing_area
     power = drag * velocity
     ld = lift / drag if drag > 0 else 0
-    constraint_satisfied = lift >= WEIGHT
+    constraint_satisfied = lift >= weight
+    flight_time_s = battery_energy_j(battery_wh) / power if power > 0 else None
+    flight_time_min = flight_time_s / 60.0 if flight_time_s is not None else None
 
     if not constraint_satisfied:
         ld *= 0.1
@@ -362,7 +394,12 @@ def score_design(design, airfoil_details):
         "lift": lift,
         "drag": drag,
         "power": power,
-        "lift_margin": lift - WEIGHT,
+        "weight": weight,
+        "battery_weight": battery_weight(battery_wh),
+        "battery_energy_j": battery_energy_j(battery_wh),
+        "flight_time_s": flight_time_s,
+        "flight_time_min": flight_time_min,
+        "lift_margin": lift - weight,
         "constraint_satisfied": constraint_satisfied,
         "aspect_ratio": aspect_ratio,
         "base_ld": base_ld,
@@ -384,8 +421,9 @@ def diversity_penalty(design, population):
         diff = sum(a != b for a, b in zip(digits, other_digits))
         span_gap = abs(design["wing_span"] - other["wing_span"])
         area_gap = abs(design["wing_area"] - other["wing_area"])
+        battery_gap = abs(design["battery_wh"] - other["battery_wh"])
 
-        if diff <= 1 and span_gap < 0.2 and area_gap < 0.08:
+        if diff <= 1 and span_gap < 0.2 and area_gap < 0.08 and battery_gap < 25.0:
             penalty += 10
 
     return penalty
@@ -444,7 +482,8 @@ def evaluate_population(population, model=None):
             },
         )
         design_score = score_design(design, airfoil_details)
-        adjusted_score = design_score["score"] - diversity_penalty(design, population)
+        endurance_bonus = min(design_score["flight_time_min"] or 0, 300.0) / 30.0
+        adjusted_score = design_score["score"] + endurance_bonus - diversity_penalty(design, population)
         scored_population.append(
             {
                 "airfoil": design["airfoil"],
@@ -452,10 +491,17 @@ def evaluate_population(population, model=None):
                 "wing_area": design["wing_area"],
                 "label": format_design_label(design),
                 "velocity": design["velocity"],
+                "battery_wh": design["battery_wh"],
                 "raw_score": design_score["score"],
                 "adjusted_score": adjusted_score,
                 "lift": design_score["lift"],
                 "drag": design_score["drag"],
+                "power": design_score["power"],
+                "weight": design_score["weight"],
+                "battery_weight": design_score["battery_weight"],
+                "battery_energy_j": design_score["battery_energy_j"],
+                "flight_time_s": design_score["flight_time_s"],
+                "flight_time_min": design_score["flight_time_min"],
                 "lift_margin": design_score["lift_margin"],
                 "constraint_satisfied": design_score["constraint_satisfied"],
                 "aspect_ratio": design_score["aspect_ratio"],
@@ -481,10 +527,17 @@ def population_state(scored_population):
             "wing_span": entry["wing_span"],
             "wing_area": entry["wing_area"],
             "velocity": entry["velocity"],
+            "battery_wh": entry["battery_wh"],
             "ld": entry["raw_score"],
             "adjusted_fitness": entry["adjusted_score"],
             "lift": entry["lift"],
             "drag": entry["drag"],
+            "power": entry["power"],
+            "weight": entry["weight"],
+            "battery_weight": entry["battery_weight"],
+            "battery_energy_j": entry["battery_energy_j"],
+            "flight_time_s": entry["flight_time_s"],
+            "flight_time_min": entry["flight_time_min"],
             "lift_margin": entry["lift_margin"],
             "constraint_satisfied": entry["constraint_satisfied"],
             "aspect_ratio": entry["aspect_ratio"],
@@ -516,8 +569,6 @@ def run_ga():
     population = [generate_random_design() for _ in range(POPULATION_SIZE)]
     best_history = []
     stats = []
-    # expose battery capacity (can be overridden via control.json)
-    battery_capacity_initial = load_battery_capacity_wh()
 
     write_visualization_state(
         {
@@ -528,10 +579,11 @@ def run_ga():
             "best_span": None,
             "best_area": None,
             "best_velocity": None,
+            "best_battery_wh": None,
             "best_dynamic_pressure": 0,
             "best_feasible": None,
             "best_lift": None,
-            "best_weight": WEIGHT,
+            "best_weight": None,
             "best_lift_margin": None,
             "best_drag": None,
             "best_power": None,
@@ -548,8 +600,9 @@ def run_ga():
             "generation_xfoil_calls": 0,
             "generation_predictions": 0,
             "generation_ml_skips": 0,
-            "battery_capacity_Wh": battery_capacity_initial,
-            "best_battery_energy_J": battery_capacity_initial * 3600.0,
+            "battery_capacity_Wh": None,
+            "best_battery_weight": None,
+            "best_battery_energy_J": None,
             "best_flight_time_s": None,
             "best_flight_time_min": None,
         }
@@ -589,38 +642,31 @@ def run_ga():
                 best["wing_span"],
                 best["wing_area"],
                 best["velocity"],
+                best["battery_wh"],
                 best["lift"],
             )
         )
         print("Best wing design:", best["label"])
         print("Best L/D this generation:", best["raw_score"])
         print("Best adjusted fitness this generation:", best["adjusted_score"])
-        print("Lift / target:", best["lift"], "/", WEIGHT)
+        print("Lift / target:", best["lift"], "/", best["weight"])
         print("Speed (m/s):", best["velocity"])
+        print("Battery (Wh):", best["battery_wh"])
 
         source_counts = {"simulated": 0, "cached": 0, "skipped": 0, "unknown": 0}
         for entry in scored_population:
             source_counts[entry["evaluation_type"]] = source_counts.get(entry["evaluation_type"], 0) + 1
 
-        feasible = best["lift"] >= WEIGHT
-        lift_margin = (best["lift"] - WEIGHT) / WEIGHT * 100
-        # compute estimated flight time from battery capacity and current best power
-        battery_capacity_now = load_battery_capacity_wh()
-        battery_energy_j = battery_capacity_now * 3600.0
-        # determine best power: prefer explicit field, else compute from drag*velocity
+        best_weight = best["weight"]
+        feasible = best["lift"] >= best_weight
+        lift_margin = (best["lift"] - best_weight) / best_weight * 100
         best_power_val = best.get("power")
         if best_power_val is None and best.get("drag") is not None and best.get("velocity") is not None:
             best_power_val = best.get("drag") * best.get("velocity")
-        if best_power_val is None or best_power_val <= 0:
-            best_flight_time_s = None
-        else:
-            best_flight_time_s = battery_energy_j / best_power_val
-        if best_flight_time_s is not None:
-            best_flight_time_min = best_flight_time_s / 60.0
-            # cap unrealistic endurance at 300 minutes (5 hours)
+        best_flight_time_s = best.get("flight_time_s")
+        best_flight_time_min = best.get("flight_time_min")
+        if best_flight_time_min is not None:
             best_flight_time_min = min(best_flight_time_min, 300.0)
-        else:
-            best_flight_time_min = None
         write_visualization_state(
             {
                 "status": "running",
@@ -630,15 +676,17 @@ def run_ga():
                 "best_span": best["wing_span"],
                 "best_area": best["wing_area"],
                 "best_velocity": best["velocity"],
+                "best_battery_wh": best["battery_wh"],
                 "best_dynamic_pressure": best.get("dynamic_pressure"),
                 "best_feasible": feasible,
                 "best_lift": best["lift"],
-                "best_weight": WEIGHT,
+                "best_weight": best_weight,
                 "best_lift_margin": lift_margin,
                 "best_drag": best["drag"],
                 "best_power": best_power_val if best_power_val is not None else (best.get("drag") * best.get("velocity") if best.get("drag") is not None and best.get("velocity") is not None else None),
-                "battery_capacity_Wh": battery_capacity_now,
-                "best_battery_energy_J": battery_energy_j,
+                "battery_capacity_Wh": best["battery_wh"],
+                "best_battery_weight": best["battery_weight"],
+                "best_battery_energy_J": best["battery_energy_j"],
                 "best_flight_time_s": best_flight_time_s,
                 "best_flight_time_min": best_flight_time_min,
                 "best_ld": best["raw_score"],
@@ -658,12 +706,24 @@ def run_ga():
         )
 
         survivors = [
-            create_design(entry["airfoil"], entry["wing_span"], entry["wing_area"], entry["velocity"])
+            create_design(
+                entry["airfoil"],
+                entry["wing_span"],
+                entry["wing_area"],
+                entry["velocity"],
+                entry["battery_wh"],
+            )
             for entry in scored_population[: POPULATION_SIZE // 2]
         ]
 
         new_population = [
-            create_design(best["airfoil"], best["wing_span"], best["wing_area"], best["velocity"])
+            create_design(
+                best["airfoil"],
+                best["wing_span"],
+                best["wing_area"],
+                best["velocity"],
+                best["battery_wh"],
+            )
         ] + survivors.copy()
 
         while len(new_population) < POPULATION_SIZE:
@@ -699,13 +759,23 @@ def run_ga():
 
     with open("optimization_stats.csv", "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["generation", "best_LD", "wing_span_m", "wing_area_m2", "velocity_m_s", "lift"])
+        writer.writerow(
+            [
+                "generation",
+                "best_LD",
+                "wing_span_m",
+                "wing_area_m2",
+                "velocity_m_s",
+                "battery_Wh",
+                "lift",
+            ]
+        )
         writer.writerows(stats)
 
     plot_airfoil(best["airfoil"])
     print("Saved best airfoil plot to", Path("best_airfoil.png"))
 
-    baseline_design = create_design("NACA 2412", 1.5, 0.4, 12.0)
+    baseline_design = create_design("NACA 2412", 1.5, 0.4, 12.0, DEFAULT_BATTERY_WH)
     baseline_airfoil_details = evaluate_airfoil_details(baseline_design["airfoil"], model)
     baseline_result = score_design(baseline_design, baseline_airfoil_details)
     save_fitness_cache()
@@ -717,6 +787,7 @@ def run_ga():
     print("Best optimized L/D:", best["raw_score"])
     print("Best optimized lift:", best["lift"])
     print("Best optimized speed (m/s):", best["velocity"])
+    print("Best optimized battery (Wh):", best["battery_wh"])
     print("\n--- Optimization Statistics ---")
     print("Total XFOIL simulations:", xfoil_calls)
     print("ML predictions:", ml_predictions)
@@ -725,24 +796,16 @@ def run_ga():
     print("Runtime:", runtime, "seconds")
 
     best_dynamic_pressure = best.get("dynamic_pressure", 0)
-    feasible = best["lift"] >= WEIGHT
-    lift_margin = (best["lift"] - WEIGHT) / WEIGHT * 100
-    # compute final estimated flight time (respect control.json override)
-    battery_capacity_now = load_battery_capacity_wh()
-    battery_energy_j = battery_capacity_now * 3600.0
-    # determine best power: prefer explicit field, else compute from drag*velocity
+    best_weight = best["weight"]
+    feasible = best["lift"] >= best_weight
+    lift_margin = (best["lift"] - best_weight) / best_weight * 100
     best_power_val = best.get("power")
     if best_power_val is None and best.get("drag") is not None and best.get("velocity") is not None:
         best_power_val = best.get("drag") * best.get("velocity")
-    if best_power_val is None or best_power_val <= 0:
-        best_flight_time_s = None
-    else:
-        best_flight_time_s = battery_energy_j / best_power_val
+    best_flight_time_s = best.get("flight_time_s")
+    best_flight_time_min = best.get("flight_time_min")
     if best_flight_time_s is not None:
-        best_flight_time_min = best_flight_time_s / 60.0
         best_flight_time_min = min(best_flight_time_min, 300.0)
-    else:
-        best_flight_time_min = None
 
     write_visualization_state(
         {
@@ -753,15 +816,17 @@ def run_ga():
             "best_span": best["wing_span"],
             "best_area": best["wing_area"],
             "best_velocity": best["velocity"],
+            "best_battery_wh": best["battery_wh"],
             "best_dynamic_pressure": best.get("dynamic_pressure"),
             "best_feasible": feasible,
             "best_lift": best["lift"],
-            "best_weight": WEIGHT,
+            "best_weight": best_weight,
             "best_lift_margin": lift_margin,
             "best_drag": best["drag"],
             "best_power": best_power_val if best_power_val is not None else (best.get("drag") * best.get("velocity") if best.get("drag") is not None and best.get("velocity") is not None else None),
-            "battery_capacity_Wh": battery_capacity_now,
-            "best_battery_energy_J": battery_energy_j,
+            "battery_capacity_Wh": best["battery_wh"],
+            "best_battery_weight": best["battery_weight"],
+            "best_battery_energy_J": best["battery_energy_j"],
             "best_flight_time_s": best_flight_time_s,
             "best_flight_time_min": best_flight_time_min,
             "best_ld": best["raw_score"],
@@ -789,6 +854,9 @@ def run_ga():
         f.write(f"Best Airfoil: {best['airfoil']}\n")
         f.write(f"Best Wing Span: {best['wing_span']}\n")
         f.write(f"Best Wing Area: {best['wing_area']}\n")
+        f.write(f"Best Battery Wh: {best['battery_wh']}\n")
+        f.write(f"Best Weight: {best_weight}\n")
+        f.write(f"Best Flight Time Min: {best_flight_time_min}\n")
         f.write(f"Best Lift: {best['lift']}\n")
         f.write(f"Best L/D: {best['raw_score']}\n")
         f.write(f"XFOIL calls: {xfoil_calls}\n")

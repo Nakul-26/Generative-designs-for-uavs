@@ -122,10 +122,15 @@ def build_population_frame(state):
                 "wing_span",
                 "wing_area",
                 "velocity",
+                "battery_wh",
                 "ld",
                 "adjusted_fitness",
                 "lift",
                 "drag",
+                "power",
+                "weight",
+                "battery_weight",
+                "flight_time_min",
                 "lift_margin",
                 "constraint_satisfied",
                 "aspect_ratio",
@@ -247,6 +252,7 @@ def render_dashboard(
     best_weight = state.get("best_weight", state.get("weight_target"))
     best_lift_margin = state.get("best_lift_margin")
     best_power = state.get("best_power")
+    best_battery_wh = state.get("best_battery_wh", state.get("battery_capacity_Wh"))
     weight_target = state.get("weight_target")
     dynamic_pressure = state.get("dynamic_pressure")
     best_velocity = state.get("best_velocity")
@@ -267,6 +273,8 @@ def render_dashboard(
         ]
         if best_velocity is not None:
             label_parts.append(f"v={best_velocity:.2f}m/s")
+        if best_battery_wh is not None:
+            label_parts.append(f"batt={best_battery_wh:.1f}Wh")
         best_label = " | ".join(label_parts)
     else:
         best_label = best_airfoil
@@ -281,7 +289,7 @@ def render_dashboard(
         unsafe_allow_html=True,
     )
 
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    col1, col2, col3, col4, col5, col6, col7 = st.columns(7)
     col1.metric("Generation", generation if generation is not None else "-")
     col2.metric("Best L/D", f"{best_ld:.2f}" if best_ld is not None else "-")
     col3.metric("Best Airfoil", best_airfoil or "-")
@@ -289,6 +297,7 @@ def render_dashboard(
     col5.metric("Best Area (m^2)", f"{best_area:.2f}" if best_area is not None else "-")
     best_velocity_display = f"{best_velocity:.2f}" if best_velocity is not None else "-"
     col6.metric("Speed (m/s)", best_velocity_display)
+    col7.metric("Battery (Wh)", f"{best_battery_wh:.1f}" if best_battery_wh is not None else "-")
 
     if beginner_mode:
         st.success("System is automatically designing better wings.")
@@ -320,9 +329,9 @@ def render_dashboard(
     else:
         st.metric("Estimated Endurance (min)", "-")
 
-    battery_capacity_wh = state.get("battery_capacity_Wh")
-    if battery_capacity_wh is not None:
-        st.write(f"Battery Capacity: {battery_capacity_wh:.0f} Wh")
+    best_battery_weight = state.get("best_battery_weight")
+    if best_battery_weight is not None:
+        st.write(f"Battery Weight: {best_battery_weight:.2f} N")
 
     if explain_mode:
         st.info(
@@ -392,14 +401,19 @@ def render_dashboard(
             "wing_span",
             "wing_area",
             "velocity",
+            "battery_wh",
             "lift",
             "drag",
+            "power",
+            "weight",
+            "flight_time_min",
             "lift_margin",
             "adjusted_fitness",
             "evaluation_type",
         ]
         if show_surrogate_columns:
             display_columns.extend(["surrogate_mean_ld", "surrogate_uncertainty"])
+        display_columns = [column for column in display_columns if column in chart_frame.columns]
         st.dataframe(
             chart_frame[display_columns],
             width="stretch",
@@ -500,10 +514,12 @@ def render_dashboard(
                 "best_span": best_span,
                 "best_area": best_area,
                 "best_velocity": best_velocity,
+                "best_battery_wh": best_battery_wh,
                 "best_dynamic_pressure": best_dynamic_pressure,
                 "best_feasible": best_feasible,
                 "best_lift": best_lift,
                 "best_weight": best_weight,
+                "best_battery_weight": state.get("best_battery_weight"),
                 "best_lift_margin": best_lift_margin,
                 "best_power": best_power,
                 "best_flight_time_s": state.get("best_flight_time_s"),
