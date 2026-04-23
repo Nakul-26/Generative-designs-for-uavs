@@ -29,6 +29,12 @@ USE_SURROGATE = True
 VIS_STATE_FILE = Path("visualization_state.json")
 CONTROL_FILE = Path("control.json")
 
+MISSION = {
+    "payload_weight": 5.0,
+    "target_flight_time": 30.0,
+    "target_speed": 15.0,
+}
+
 SPAN_MIN = 0.5
 SPAN_MAX = 3.0
 AREA_MIN = 0.1
@@ -36,13 +42,12 @@ AREA_MAX = 1.0
 VELOCITY_MIN = 5.0
 VELOCITY_MAX = 25.0
 RHO = 1.225
-PAYLOAD_WEIGHT = 2.0
 STRUCTURE_WEIGHT = 4.0
 BATTERY_WEIGHT_PER_WH = 0.02
 BATTERY_MIN_WH = 100.0
 BATTERY_MAX_WH = 500.0
 DEFAULT_BATTERY_WH = 200.0
-WEIGHT = PAYLOAD_WEIGHT + STRUCTURE_WEIGHT + BATTERY_WEIGHT_PER_WH * DEFAULT_BATTERY_WH
+WEIGHT = MISSION["payload_weight"] + STRUCTURE_WEIGHT + BATTERY_WEIGHT_PER_WH * DEFAULT_BATTERY_WH
 OSWALD_EFFICIENCY = 0.85
 
 best_designs = []
@@ -71,6 +76,40 @@ fitness_cache = load_fitness_cache()
 def write_visualization_state(state):
     with open(VIS_STATE_FILE, "w") as f:
         json.dump(state, f, indent=2)
+
+
+def load_mission():
+    if not CONTROL_FILE.exists():
+        return dict(MISSION)
+
+    try:
+        with open(CONTROL_FILE, "r") as f:
+            control = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return dict(MISSION)
+
+    mission = control.get("mission", MISSION)
+    return {
+        "payload_weight": float(mission.get("payload_weight", MISSION["payload_weight"])),
+        "target_flight_time": float(
+            mission.get("target_flight_time", MISSION["target_flight_time"])
+        ),
+        "target_speed": float(mission.get("target_speed", MISSION["target_speed"])),
+    }
+
+
+def apply_mission(mission):
+    global WEIGHT
+    MISSION.update(
+        {
+            "payload_weight": float(mission.get("payload_weight", MISSION["payload_weight"])),
+            "target_flight_time": float(
+                mission.get("target_flight_time", MISSION["target_flight_time"])
+            ),
+            "target_speed": float(mission.get("target_speed", MISSION["target_speed"])),
+        }
+    )
+    WEIGHT = MISSION["payload_weight"] + STRUCTURE_WEIGHT + BATTERY_WEIGHT_PER_WH * DEFAULT_BATTERY_WH
 
 
 def is_running():
@@ -128,7 +167,7 @@ def battery_weight(battery_wh):
 
 
 def design_weight(battery_wh):
-    return PAYLOAD_WEIGHT + STRUCTURE_WEIGHT + battery_weight(battery_wh)
+    return MISSION["payload_weight"] + STRUCTURE_WEIGHT + battery_weight(battery_wh)
 
 
 def battery_energy_j(battery_wh):
@@ -166,11 +205,12 @@ def format_design_label(design):
 
 
 def generate_random_design():
+    target_speed = MISSION["target_speed"]
     return create_design(
         generate_random_naca(),
         random.uniform(SPAN_MIN, SPAN_MAX),
         random.uniform(AREA_MIN, AREA_MAX),
-        random.uniform(VELOCITY_MIN, VELOCITY_MAX),
+        random.uniform(target_speed * 0.8, target_speed * 1.2),
         random.uniform(BATTERY_MIN_WH, BATTERY_MAX_WH),
     )
 
@@ -355,10 +395,13 @@ def score_design(design, airfoil_details):
     cl = airfoil_details.get("cl") or 0
     base_cd = airfoil_details.get("cd")
     base_ld = airfoil_details.get("score", 0)
+    target_time = MISSION["target_flight_time"]
 
     if base_cd in (None, 0) or cl <= 0:
         return {
             "score": 0,
+            "mission_fitness": 0,
+            "time_score": 0,
             "lift": 0,
             "drag": 0,
             "power": None,
@@ -385,12 +428,24 @@ def score_design(design, airfoil_details):
     constraint_satisfied = lift >= weight
     flight_time_s = battery_energy_j(battery_wh) / power if power > 0 else None
     flight_time_min = flight_time_s / 60.0 if flight_time_s is not None else None
+    time_score = 0
+    if flight_time_min is not None and target_time > 0:
+        ratio = flight_time_min / target_time
+        if ratio < 1:
+            time_score = ratio
+        elif ratio <= 1.5:
+            time_score = 1.0
+        else:
+            time_score = max(0.5, 1.5 - (ratio - 1.5))
 
+    mission_fitness = ld + 10.0 * time_score
     if not constraint_satisfied:
-        ld *= 0.1
+        mission_fitness *= 0.1
 
     return {
         "score": ld,
+        "mission_fitness": mission_fitness,
+        "time_score": time_score,
         "lift": lift,
         "drag": drag,
         "power": power,
@@ -427,6 +482,84 @@ def diversity_penalty(design, population):
             penalty += 10
 
     return penalty
+
+
+def dominates(a, b):
+    a_power = a.get("power")
+    b_power = b.get("power")
+    a_time = a.get("flight_time_min")
+    b_time = b.get("flight_time_min")
+
+    if a_power is None:
+        return False
+    if b_power is None:
+        return True
+
+    a_time = a_time if a_time is not None else 0
+    b_time = b_time if b_time is not None else 0
+
+    return (
+        a.get("ld", 0) >= b.get("ld", 0)
+        and a_time >= b_time
+        and a_power <= b_power
+        and (
+            a.get("ld", 0) > b.get("ld", 0)
+            or a_time > b_time
+            or a_power < b_power
+        )
+    )
+
+
+def build_pareto_front(scored_population):
+    pareto_front = []
+    seen_signatures = set()
+
+    for candidate in scored_population:
+        dominated = False
+        for other in scored_population:
+            if other is candidate:
+                continue
+            if dominates(other, candidate):
+                dominated = True
+                break
+
+        if not dominated:
+            signature = (
+                candidate["airfoil"],
+                candidate["wing_span"],
+                candidate["wing_area"],
+                candidate["velocity"],
+                candidate["battery_wh"],
+            )
+            if signature in seen_signatures:
+                continue
+            seen_signatures.add(signature)
+            pareto_front.append(
+                {
+                    "airfoil": candidate["airfoil"],
+                    "label": candidate["label"],
+                    "ld": candidate["raw_score"],
+                    "flight_time_min": candidate["flight_time_min"],
+                    "power": candidate["power"],
+                    "wing_span": candidate["wing_span"],
+                    "wing_area": candidate["wing_area"],
+                    "velocity": candidate["velocity"],
+                    "battery_wh": candidate["battery_wh"],
+                    "lift": candidate["lift"],
+                    "weight": candidate["weight"],
+                    "mission_fitness": candidate["mission_fitness"],
+                    "adjusted_fitness": candidate["adjusted_score"],
+                }
+            )
+
+    pareto_front.sort(
+        key=lambda item: (
+            -(item["ld"] or 0),
+            -(item["flight_time_min"] or 0),
+            item["power"] if item["power"] is not None else float("inf"),
+        )
+    )
+    return pareto_front
 
 
 def evaluate_population(population, model=None):
@@ -482,8 +615,7 @@ def evaluate_population(population, model=None):
             },
         )
         design_score = score_design(design, airfoil_details)
-        endurance_bonus = min(design_score["flight_time_min"] or 0, 300.0) / 30.0
-        adjusted_score = design_score["score"] + endurance_bonus - diversity_penalty(design, population)
+        adjusted_score = design_score["mission_fitness"] - diversity_penalty(design, population)
         scored_population.append(
             {
                 "airfoil": design["airfoil"],
@@ -493,6 +625,8 @@ def evaluate_population(population, model=None):
                 "velocity": design["velocity"],
                 "battery_wh": design["battery_wh"],
                 "raw_score": design_score["score"],
+                "mission_fitness": design_score["mission_fitness"],
+                "time_score": design_score["time_score"],
                 "adjusted_score": adjusted_score,
                 "lift": design_score["lift"],
                 "drag": design_score["drag"],
@@ -529,6 +663,8 @@ def population_state(scored_population):
             "velocity": entry["velocity"],
             "battery_wh": entry["battery_wh"],
             "ld": entry["raw_score"],
+            "mission_fitness": entry["mission_fitness"],
+            "time_score": entry["time_score"],
             "adjusted_fitness": entry["adjusted_score"],
             "lift": entry["lift"],
             "drag": entry["drag"],
@@ -553,6 +689,27 @@ def population_state(scored_population):
     ]
 
 
+def pareto_state(pareto_front):
+    return [
+        {
+            "airfoil": entry["airfoil"],
+            "label": entry["label"],
+            "ld": entry["ld"],
+            "flight_time_min": entry["flight_time_min"],
+            "power": entry["power"],
+            "wing_span": entry["wing_span"],
+            "wing_area": entry["wing_area"],
+            "velocity": entry["velocity"],
+            "battery_wh": entry["battery_wh"],
+            "lift": entry["lift"],
+            "weight": entry["weight"],
+            "mission_fitness": entry["mission_fitness"],
+            "adjusted_fitness": entry["adjusted_fitness"],
+        }
+        for entry in pareto_front
+    ]
+
+
 def run_ga():
     global xfoil_calls, ml_predictions, ml_skips
 
@@ -562,9 +719,10 @@ def run_ga():
     xfoil_calls = 0
     ml_predictions = 0
     ml_skips = 0
+    apply_mission(load_mission())
     if not CONTROL_FILE.exists():
         with open(CONTROL_FILE, "w") as f:
-            json.dump({"running": True}, f, indent=2)
+            json.dump({"running": True, "mission": dict(MISSION)}, f, indent=2)
     model = train_model() if USE_SURROGATE else None
     population = [generate_random_design() for _ in range(POPULATION_SIZE)]
     best_history = []
@@ -588,7 +746,14 @@ def run_ga():
             "best_drag": None,
             "best_power": None,
             "best_ld": None,
+            "best_mission_fitness": None,
+            "best_time_score": None,
             "best_adjusted_fitness": None,
+            "pareto_front": [],
+            "pareto_front_count": 0,
+            "mission_payload": MISSION["payload_weight"],
+            "mission_time": MISSION["target_flight_time"],
+            "mission_speed": MISSION["target_speed"],
             "weight_target": WEIGHT,
             "dynamic_pressure": 0,
             "best_history": [],
@@ -609,6 +774,7 @@ def run_ga():
     )
 
     for generation in range(GENERATIONS):
+        apply_mission(load_mission())
         wait_until_running()
         print("\nGeneration:", generation)
         generation_xfoil_before = xfoil_calls
@@ -616,6 +782,7 @@ def run_ga():
         generation_skips_before = ml_skips
 
         scored_population = evaluate_population(population, model)
+        pareto_front = build_pareto_front(scored_population)
 
         for entry in scored_population:
             print(
@@ -633,12 +800,14 @@ def run_ga():
         scored_population.sort(key=lambda item: item["adjusted_score"], reverse=True)
 
         best = scored_population[0]
-        best_history.append(best["raw_score"])
+        best_history.append(best["mission_fitness"])
         best_designs.append((best["label"], best["raw_score"]))
         stats.append(
             (
                 generation,
                 best["raw_score"],
+                best["mission_fitness"],
+                best["adjusted_score"],
                 best["wing_span"],
                 best["wing_area"],
                 best["velocity"],
@@ -648,7 +817,9 @@ def run_ga():
         )
         print("Best wing design:", best["label"])
         print("Best L/D this generation:", best["raw_score"])
+        print("Best mission fitness this generation:", best["mission_fitness"])
         print("Best adjusted fitness this generation:", best["adjusted_score"])
+        print("Pareto front size:", len(pareto_front))
         print("Lift / target:", best["lift"], "/", best["weight"])
         print("Speed (m/s):", best["velocity"])
         print("Battery (Wh):", best["battery_wh"])
@@ -690,7 +861,14 @@ def run_ga():
                 "best_flight_time_s": best_flight_time_s,
                 "best_flight_time_min": best_flight_time_min,
                 "best_ld": best["raw_score"],
+                "best_mission_fitness": best["mission_fitness"],
+                "best_time_score": best["time_score"],
                 "best_adjusted_fitness": best["adjusted_score"],
+                "pareto_front": pareto_state(pareto_front),
+                "pareto_front_count": len(pareto_front),
+                "mission_payload": MISSION["payload_weight"],
+                "mission_time": MISSION["target_flight_time"],
+                "mission_speed": MISSION["target_speed"],
                 "weight_target": WEIGHT,
                 "dynamic_pressure": best.get("dynamic_pressure"),
                 "best_history": best_history,
@@ -746,7 +924,7 @@ def run_ga():
     plt.plot(best_history, marker="o")
     plt.title("GA Convergence")
     plt.xlabel("Generation")
-    plt.ylabel("Best Wing L/D")
+    plt.ylabel("Best Mission Fitness")
     plt.grid(True)
     plot_path = Path("ga_convergence.png")
     plt.savefig(plot_path, dpi=150, bbox_inches="tight")
@@ -763,6 +941,8 @@ def run_ga():
             [
                 "generation",
                 "best_LD",
+                "best_mission_fitness",
+                "best_adjusted_fitness",
                 "wing_span_m",
                 "wing_area_m2",
                 "velocity_m_s",
@@ -775,7 +955,14 @@ def run_ga():
     plot_airfoil(best["airfoil"])
     print("Saved best airfoil plot to", Path("best_airfoil.png"))
 
-    baseline_design = create_design("NACA 2412", 1.5, 0.4, 12.0, DEFAULT_BATTERY_WH)
+    pareto_front = build_pareto_front(scored_population)
+    baseline_design = create_design(
+        "NACA 2412",
+        1.5,
+        0.4,
+        MISSION["target_speed"],
+        DEFAULT_BATTERY_WH,
+    )
     baseline_airfoil_details = evaluate_airfoil_details(baseline_design["airfoil"], model)
     baseline_result = score_design(baseline_design, baseline_airfoil_details)
     save_fitness_cache()
@@ -785,6 +972,9 @@ def run_ga():
     print("Baseline lift:", baseline_result["lift"])
     print("Best optimized wing:", best["label"])
     print("Best optimized L/D:", best["raw_score"])
+    print("Best optimized mission fitness:", best["mission_fitness"])
+    print("Best optimized adjusted fitness:", best["adjusted_score"])
+    print("Pareto front size:", len(pareto_front))
     print("Best optimized lift:", best["lift"])
     print("Best optimized speed (m/s):", best["velocity"])
     print("Best optimized battery (Wh):", best["battery_wh"])
@@ -830,7 +1020,14 @@ def run_ga():
             "best_flight_time_s": best_flight_time_s,
             "best_flight_time_min": best_flight_time_min,
             "best_ld": best["raw_score"],
-            "best_adjusted_fitness": best["adjusted_score"],
+                "best_mission_fitness": best["mission_fitness"],
+                "best_time_score": best["time_score"],
+                "best_adjusted_fitness": best["adjusted_score"],
+                "pareto_front": pareto_state(pareto_front),
+                "pareto_front_count": len(pareto_front),
+                "mission_payload": MISSION["payload_weight"],
+                "mission_time": MISSION["target_flight_time"],
+                "mission_speed": MISSION["target_speed"],
             "weight_target": WEIGHT,
             "dynamic_pressure": best.get("dynamic_pressure"),
             "best_history": best_history,
@@ -844,6 +1041,9 @@ def run_ga():
     )
 
     with open("experiment_summary.txt", "w") as f:
+        f.write(f"Mission Payload (N): {MISSION['payload_weight']}\n")
+        f.write(f"Mission Target Flight Time (min): {MISSION['target_flight_time']}\n")
+        f.write(f"Mission Target Speed (m/s): {MISSION['target_speed']}\n")
         f.write(f"Use Surrogate: {USE_SURROGATE}\n")
         f.write(f"Weight Target: {WEIGHT}\n")
         f.write(f"Best Velocity: {best['velocity']}\n")
@@ -857,6 +1057,9 @@ def run_ga():
         f.write(f"Best Battery Wh: {best['battery_wh']}\n")
         f.write(f"Best Weight: {best_weight}\n")
         f.write(f"Best Flight Time Min: {best_flight_time_min}\n")
+        f.write(f"Best Mission Fitness: {best['mission_fitness']}\n")
+        f.write(f"Best Adjusted Fitness: {best['adjusted_score']}\n")
+        f.write(f"Pareto Front Size: {len(pareto_front)}\n")
         f.write(f"Best Lift: {best['lift']}\n")
         f.write(f"Best L/D: {best['raw_score']}\n")
         f.write(f"XFOIL calls: {xfoil_calls}\n")

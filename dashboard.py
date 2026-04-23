@@ -11,6 +11,11 @@ from airfoil_geometry import generate_naca4_coordinates
 
 STATE_FILE = Path("visualization_state.json")
 CONTROL_FILE = Path("control.json")
+DEFAULT_MISSION = {
+    "payload_weight": 5.0,
+    "target_flight_time": 30.0,
+    "target_speed": 15.0,
+}
 REFRESH_OPTIONS_MS = {
     "1 second": 1000,
     "2 seconds": 2000,
@@ -92,22 +97,37 @@ def load_state():
 
 def load_control():
     if not CONTROL_FILE.exists():
-        return {"running": True}
+        return {"running": True, "mission": dict(DEFAULT_MISSION)}
 
     try:
         with open(CONTROL_FILE, "r") as handle:
             control = json.load(handle)
     except (OSError, json.JSONDecodeError):
-        return {"running": True}
+        return {"running": True, "mission": dict(DEFAULT_MISSION)}
 
-    return {"running": bool(control.get("running", True))}
+    mission = control.get("mission", DEFAULT_MISSION)
+    return {
+        "running": bool(control.get("running", True)),
+        "mission": {
+            "payload_weight": float(mission.get("payload_weight", DEFAULT_MISSION["payload_weight"])),
+            "target_flight_time": float(
+                mission.get("target_flight_time", DEFAULT_MISSION["target_flight_time"])
+            ),
+            "target_speed": float(mission.get("target_speed", DEFAULT_MISSION["target_speed"])),
+        },
+    }
 
 
-def write_control(running):
+def write_control(running, mission=None):
     tmp_path = CONTROL_FILE.with_suffix(".json.tmp")
+    current = load_control()
+    payload = {
+        "running": running,
+        "mission": mission if mission is not None else current["mission"],
+    }
 
     with open(tmp_path, "w") as handle:
-        json.dump({"running": running}, handle, indent=2)
+        json.dump(payload, handle, indent=2)
 
     tmp_path.replace(CONTROL_FILE)
 
@@ -124,6 +144,8 @@ def build_population_frame(state):
                 "velocity",
                 "battery_wh",
                 "ld",
+                "mission_fitness",
+                "time_score",
                 "adjusted_fitness",
                 "lift",
                 "drag",
@@ -248,11 +270,18 @@ def render_dashboard(
     best_feasible = state.get("best_feasible")
     best_lift = state.get("best_lift")
     best_ld = state.get("best_ld")
+    best_mission_fitness = state.get("best_mission_fitness")
+    best_time_score = state.get("best_time_score")
     best_adjusted_fitness = state.get("best_adjusted_fitness")
     best_weight = state.get("best_weight", state.get("weight_target"))
     best_lift_margin = state.get("best_lift_margin")
     best_power = state.get("best_power")
     best_battery_wh = state.get("best_battery_wh", state.get("battery_capacity_Wh"))
+    mission_payload = state.get("mission_payload")
+    mission_time = state.get("mission_time")
+    mission_speed = state.get("mission_speed")
+    pareto_front = state.get("pareto_front", [])
+    pareto_front_count = state.get("pareto_front_count", len(pareto_front))
     weight_target = state.get("weight_target")
     dynamic_pressure = state.get("dynamic_pressure")
     best_velocity = state.get("best_velocity")
@@ -299,6 +328,24 @@ def render_dashboard(
     col6.metric("Speed (m/s)", best_velocity_display)
     col7.metric("Battery (Wh)", f"{best_battery_wh:.1f}" if best_battery_wh is not None else "-")
 
+    st.subheader("Active Mission")
+    mission_col1, mission_col2, mission_col3 = st.columns(3)
+    mission_col1.metric("Payload (N)", f"{mission_payload:.1f}" if mission_payload is not None else "-")
+    mission_col2.metric("Target Flight Time (min)", f"{mission_time:.1f}" if mission_time is not None else "-")
+    mission_col3.metric("Target Speed (m/s)", f"{mission_speed:.1f}" if mission_speed is not None else "-")
+
+    st.subheader("Best Design Options (Pareto Front)")
+    st.caption(f"{pareto_front_count} trade-off designs found in the current population.")
+    if pareto_front:
+        for design in pareto_front[:5]:
+            st.write(
+                f"{design['label']} | L/D: {design['ld']:.1f} | "
+                f"Time: {design['flight_time_min']:.1f} min | "
+                f"Power: {design['power']:.1f} W"
+            )
+    else:
+        st.info("Pareto front will appear after the first generation completes.")
+
     if beginner_mode:
         st.success("System is automatically designing better wings.")
 
@@ -338,7 +385,8 @@ def render_dashboard(
             "Generation = current optimization step. "
             "Best L/D = best efficiency found so far. "
             "Best Airfoil = the current wing section shape. "
-            "Span and Area = the current wing size."
+            "Span and Area = the current wing size. "
+            "Mission Requirements = the target the optimizer is trying to satisfy."
         )
 
     if not beginner_mode:
@@ -409,6 +457,8 @@ def render_dashboard(
             "flight_time_min",
             "lift_margin",
             "adjusted_fitness",
+            "mission_fitness",
+            "time_score",
             "evaluation_type",
         ]
         if show_surrogate_columns:
@@ -463,13 +513,13 @@ def render_dashboard(
         st.subheader("Is The System Improving?")
         if explain_mode:
             st.info(
-                "This line shows the best L/D found over time. "
-                "If it rises, the optimizer is finding better wing designs."
+                "This line shows the best mission fitness found over time. "
+                "If it rises, the optimizer is finding better mission matches."
             )
         history = state.get("best_history", [])
         if history:
             history_frame = pd.DataFrame(
-                {"generation": list(range(len(history))), "best_ld": history}
+                {"generation": list(range(len(history))), "best_mission_fitness": history}
             ).set_index("generation")
             st.line_chart(history_frame, color="#2563eb")
         else:
@@ -480,13 +530,13 @@ def render_dashboard(
             st.subheader("Is The System Improving?")
             if explain_mode:
                 st.info(
-                "This line shows the best L/D found over time. "
-                "If it rises, the optimizer is finding better wing designs."
+                "This line shows the best mission fitness found over time. "
+                "If it rises, the optimizer is finding better mission matches."
                 )
             history = state.get("best_history", [])
             if history:
                 history_frame = pd.DataFrame(
-                    {"generation": list(range(len(history))), "best_ld": history}
+                    {"generation": list(range(len(history))), "best_mission_fitness": history}
                 ).set_index("generation")
                 st.line_chart(history_frame, color="#2563eb")
             else:
@@ -524,8 +574,14 @@ def render_dashboard(
                 "best_power": best_power,
                 "best_flight_time_s": state.get("best_flight_time_s"),
                 "best_flight_time_min": state.get("best_flight_time_min"),
+                "best_mission_fitness": best_mission_fitness,
+                "best_time_score": best_time_score,
+                "pareto_front_count": pareto_front_count,
                 "battery_capacity_Wh": state.get("battery_capacity_Wh"),
                 "best_battery_energy_J": state.get("best_battery_energy_J"),
+                "mission_payload": mission_payload,
+                "mission_time": mission_time,
+                "mission_speed": mission_speed,
                 "weight_target": weight_target,
                 "dynamic_pressure": dynamic_pressure,
                 "best_ld": best_ld,
@@ -546,16 +602,49 @@ def main():
     st.sidebar.header("Controls")
     control = load_control()
     running = control["running"]
+    mission = control["mission"]
 
     start_col, stop_col = st.sidebar.columns(2)
     if start_col.button("Start", width="stretch", disabled=running):
-        write_control(True)
+        write_control(True, mission=mission)
         st.rerun()
     if stop_col.button("Stop", width="stretch", disabled=not running):
-        write_control(False)
+        write_control(False, mission=mission)
         st.rerun()
 
     st.sidebar.caption(f"Optimizer: {'Running' if running else 'Stopped'}")
+    st.sidebar.subheader("Mission Input")
+    payload = st.sidebar.number_input(
+        "Payload (N)",
+        value=float(mission["payload_weight"]),
+        min_value=0.0,
+        step=0.1,
+    )
+    flight_time = st.sidebar.number_input(
+        "Target Flight Time (min)",
+        value=float(mission["target_flight_time"]),
+        min_value=0.0,
+        step=0.5,
+    )
+    speed = st.sidebar.number_input(
+        "Target Speed (m/s)",
+        value=float(mission["target_speed"]),
+        min_value=0.0,
+        step=0.1,
+    )
+    mission_data = {
+        "payload_weight": payload,
+        "target_flight_time": flight_time,
+        "target_speed": speed,
+    }
+    mission_changed = mission_data != mission
+    if mission_changed:
+        st.sidebar.caption("Mission changed. Save to apply it to the optimizer.")
+    save_mission = st.sidebar.button("Save Mission", width="stretch", disabled=not mission_changed)
+    if save_mission:
+        write_control(running, mission=mission_data)
+        st.rerun()
+
     beginner_mode = st.sidebar.toggle("Beginner Mode", value=True)
     explain_mode = st.sidebar.toggle("Explain Mode", value=True)
     refresh_label = st.sidebar.selectbox(
