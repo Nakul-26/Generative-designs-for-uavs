@@ -169,6 +169,132 @@ def build_population_frame(state):
     return frame
 
 
+def select_design(pareto_front, priority, balanced_weights=None):
+    if not pareto_front:
+        return None
+
+    def get_value(design, *keys):
+        for key in keys:
+            value = design.get(key)
+            if value is not None:
+                return value
+        return None
+
+    def normalize(values):
+        min_v = min(values)
+        max_v = max(values)
+        if max_v - min_v == 0:
+            return [1.0 for _ in values]
+        return [(value - min_v) / (max_v - min_v) for value in values]
+
+    if priority == "Max Efficiency":
+        return max(pareto_front, key=lambda d: get_value(d, "L_D", "ld") or float("-inf"))
+
+    if priority == "Max Endurance":
+        return max(
+            pareto_front,
+            key=lambda d: get_value(d, "flight_time", "flight_time_min") or float("-inf"),
+        )
+
+    if priority == "Min Power":
+        return min(pareto_front, key=lambda d: get_value(d, "power") or float("inf"))
+
+    if balanced_weights is None:
+        balanced_weights = (0.4, 0.4, 0.2)
+    w_ld, w_time, w_power = balanced_weights
+
+    ld_vals = [get_value(design, "L_D", "ld") or 0 for design in pareto_front]
+    ft_vals = [get_value(design, "flight_time", "flight_time_min") or 0 for design in pareto_front]
+    pw_vals = [get_value(design, "power") or 0 for design in pareto_front]
+
+    ld_norm = normalize(ld_vals)
+    ft_norm = normalize(ft_vals)
+    pw_norm = normalize(pw_vals)
+
+    best_score = float("-inf")
+    best_design = None
+
+    for index, design in enumerate(pareto_front):
+        score = w_ld * ld_norm[index] + w_time * ft_norm[index] - w_power * pw_norm[index]
+        if score > best_score:
+            best_score = score
+            best_design = design
+
+    return best_design
+
+
+def generate_report(design):
+    if not design:
+        st.error("No design selected")
+        return None
+
+    airfoil = design.get("airfoil", "-")
+    wing_span = design.get("wing_span")
+    wing_area = design.get("wing_area")
+    velocity = design.get("velocity")
+    lift = design.get("lift")
+    weight = design.get("weight")
+    ld = design.get("L_D", design.get("ld"))
+    battery_wh = design.get("battery_wh")
+    power = design.get("power")
+    flight_time = design.get("flight_time", design.get("flight_time_min"))
+    feasibility = "PASS" if lift is not None and weight is not None and lift >= weight else "FAIL"
+
+    report = f"""UAV DESIGN REPORT
+=================
+
+Airfoil: {airfoil}
+Wing Span: {wing_span:.2f} m
+Wing Area: {wing_area:.3f} m^2
+
+Flight Conditions:
+- Speed: {velocity:.2f} m/s
+
+Performance:
+- Lift: {lift:.2f} N
+- Weight: {weight:.2f} N
+- L/D Ratio: {ld:.2f}
+
+Energy:
+- Battery: {battery_wh:.2f} Wh
+- Power: {power:.2f} W
+- Flight Time: {flight_time:.2f} min
+
+Feasibility:
+- Status: {feasibility}
+"""
+    return report
+
+
+def generate_report_json(design):
+    if not design:
+        return None
+
+    lift = design.get("lift")
+    weight = design.get("weight")
+    return {
+        "airfoil": design.get("airfoil"),
+        "wing": {
+            "span_m": design.get("wing_span"),
+            "area_m2": design.get("wing_area"),
+        },
+        "flight": {
+            "velocity_mps": design.get("velocity"),
+        },
+        "performance": {
+            "lift_N": lift,
+            "weight_N": weight,
+            "lift_to_drag": design.get("L_D", design.get("ld")),
+        },
+        "energy": {
+            "battery_Wh": design.get("battery_wh"),
+            "power_W": design.get("power"),
+            "flight_time_min": design.get("flight_time", design.get("flight_time_min")),
+        },
+        "feasible": lift is not None and weight is not None and lift >= weight,
+    }
+
+
 def render_airfoil_plot(naca):
     fig, ax = plt.subplots(figsize=(6, 3))
     fig.patch.set_facecolor("#111827")
@@ -260,6 +386,8 @@ def render_dashboard(
     show_surrogate_columns,
     explain_mode,
     beginner_mode,
+    priority,
+    balanced_weights,
 ):
     status = state.get("status", "waiting")
     generation = state.get("generation")
@@ -345,6 +473,64 @@ def render_dashboard(
             )
     else:
         st.info("Pareto front will appear after the first generation completes.")
+
+    selected = select_design(pareto_front, priority, balanced_weights=balanced_weights)
+    st.subheader("Recommended Design")
+    if selected:
+        st.success(
+            f"{selected['airfoil']} | "
+            f"L/D: {selected['ld']:.1f} | "
+            f"Time: {selected['flight_time_min']:.1f} min | "
+            f"Power: {selected['power']:.1f} W"
+        )
+    else:
+        st.info("Select a design priority after the Pareto front appears.")
+
+    report_signature = None
+    if selected:
+        report_signature = (
+            selected.get("airfoil"),
+            selected.get("wing_span"),
+            selected.get("wing_area"),
+            selected.get("velocity"),
+            selected.get("battery_wh"),
+            selected.get("ld"),
+            selected.get("flight_time_min"),
+            selected.get("power"),
+        )
+
+    if st.session_state.get("report_signature") != report_signature:
+        st.session_state.pop("report_text", None)
+        st.session_state["report_signature"] = report_signature
+
+    st.subheader("Final UAV Design Report")
+    if st.button("Generate UAV Report", disabled=selected is None):
+        report_text = generate_report(selected)
+        if report_text:
+            st.session_state["report_text"] = report_text
+
+    report_text = st.session_state.get("report_text")
+    if report_text:
+        st.code(report_text, language="text")
+        st.download_button(
+            label="Download Report",
+            data=report_text,
+            file_name="uav_design_report.txt",
+            mime="text/plain",
+            width="stretch",
+        )
+
+    report_json = generate_report_json(selected)
+    if report_json:
+        st.subheader("UAV Design JSON")
+        st.json(report_json)
+        st.download_button(
+            label="Download JSON",
+            data=json.dumps(report_json, indent=4),
+            file_name="uav_design.json",
+            mime="application/json",
+            width="stretch",
+        )
 
     if beginner_mode:
         st.success("System is automatically designing better wings.")
@@ -647,6 +833,19 @@ def main():
 
     beginner_mode = st.sidebar.toggle("Beginner Mode", value=True)
     explain_mode = st.sidebar.toggle("Explain Mode", value=True)
+    priority = st.sidebar.selectbox(
+        "Choose Design Priority",
+        ["Balanced", "Max Efficiency", "Max Endurance", "Min Power"],
+    )
+    st.sidebar.subheader("⚖ Balance Weights")
+    w_ld = st.sidebar.slider("Efficiency (L/D)", 0.0, 1.0, 0.4)
+    w_time = st.sidebar.slider("Endurance", 0.0, 1.0, 0.4)
+    w_power = st.sidebar.slider("Power (minimize)", 0.0, 1.0, 0.2)
+    total = w_ld + w_time + w_power
+    if total == 0:
+        balanced_weights = (0.4, 0.4, 0.2)
+    else:
+        balanced_weights = (w_ld / total, w_time / total, w_power / total)
     refresh_label = st.sidebar.selectbox(
         "Refresh interval",
         options=list(REFRESH_OPTIONS_MS.keys()),
@@ -703,6 +902,8 @@ def main():
         show_surrogate_columns=show_surrogate_columns,
         explain_mode=explain_mode,
         beginner_mode=beginner_mode,
+        priority=priority,
+        balanced_weights=balanced_weights,
     )
 
     if refresh_ms > 0:

@@ -416,6 +416,7 @@ def score_design(design, airfoil_details):
             "base_ld": base_ld,
             "base_cd": base_cd,
             "total_cd": None,
+            "realism_penalty": 1.0,
         }
 
     total_cd = base_cd + induced_drag_coefficient(cl, aspect_ratio)
@@ -442,6 +443,20 @@ def score_design(design, airfoil_details):
     if not constraint_satisfied:
         mission_fitness *= 0.1
 
+    realism_penalty = 1.0
+    if ld > 150:
+        realism_penalty *= 0.5
+    if velocity < 5 or velocity > 25:
+        realism_penalty *= 0.5
+    if wing_area < 0.05 or wing_area > 1.0:
+        realism_penalty *= 0.5
+    if aspect_ratio < 4 or aspect_ratio > 15:
+        realism_penalty *= 0.5
+    if power < 5:
+        realism_penalty *= 0.5
+
+    mission_fitness *= realism_penalty
+
     return {
         "score": ld,
         "mission_fitness": mission_fitness,
@@ -461,6 +476,7 @@ def score_design(design, airfoil_details):
         "base_cd": base_cd,
         "total_cd": total_cd,
         "dynamic_pressure": q,
+        "realism_penalty": realism_penalty,
     }
 
 
