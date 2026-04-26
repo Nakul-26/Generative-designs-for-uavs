@@ -1083,3 +1083,5 @@ def run_ga():
         f.write(f"ML skips: {ml_skips}\n")
         f.write(f"Cache size: {len(fitness_cache)}\n")
         f.write(f"Runtime: {runtime}\n")
+    
+    return best, best_history
