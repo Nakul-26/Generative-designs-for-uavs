@@ -730,7 +730,6 @@ def run_ga():
     global xfoil_calls, ml_predictions, ml_skips
 
     start_time = time.time()
-    random.seed(42)
     best_designs.clear()
     xfoil_calls = 0
     ml_predictions = 0
@@ -1085,3 +1084,6 @@ def run_ga():
         f.write(f"Runtime: {runtime}\n")
     
     return best, best_history
+
+if __name__ == "__main__":
+    run_ga()
