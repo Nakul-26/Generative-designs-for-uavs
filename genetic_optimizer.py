@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 from airfoil_generator import generate_random_naca
 from airfoil_plotter import plot_airfoil
-from surrogate_model import predict_ld_with_uncertainty, train_model
+from surrogate_model import predict_with_uncertainty, train_model
 from xfoil_runner import run_xfoil
 
 
@@ -49,6 +49,8 @@ BATTERY_MAX_WH = 500.0
 DEFAULT_BATTERY_WH = 200.0
 WEIGHT = MISSION["payload_weight"] + STRUCTURE_WEIGHT + BATTERY_WEIGHT_PER_WH * DEFAULT_BATTERY_WH
 OSWALD_EFFICIENCY = 0.85
+SURROGATE_SKIP_LD_THRESHOLD = 80.0
+SURROGATE_SKIP_UNCERTAINTY_THRESHOLD = 10.0
 
 best_designs = []
 xfoil_calls = 0
@@ -168,6 +170,12 @@ def battery_weight(battery_wh):
 
 def design_weight(battery_wh):
     return MISSION["payload_weight"] + STRUCTURE_WEIGHT + battery_weight(battery_wh)
+
+
+def estimate_lift(design, cl=0.8):
+    velocity = design["velocity"]
+    area = design["wing_area"]
+    return 0.5 * RHO * velocity ** 2 * area * cl
 
 
 def battery_energy_j(battery_wh):
@@ -307,15 +315,29 @@ def get_cached_airfoil_entry(naca):
             "cl": entry.get("cl"),
             "cd": entry.get("cd"),
             "ld": entry.get("ld", 0),
+            "evaluation_type": entry.get("evaluation_type"),
+            "surrogate_mean_ld": entry.get("surrogate_mean_ld"),
+            "surrogate_uncertainty": entry.get("surrogate_uncertainty"),
         }
 
     return None
 
 
 def evaluate_airfoil_details(naca, model=None):
-    global ml_predictions, xfoil_calls
+    global ml_predictions, xfoil_calls, ml_skips
 
     cached_entry = get_cached_airfoil_entry(naca)
+    if cached_entry is not None and cached_entry["evaluation_type"] == "skipped":
+        return {
+            "score": cached_entry["ld"],
+            "cl": None,
+            "cd": None,
+            "evaluation_type": "skipped",
+            "surrogate_used": True,
+            "surrogate_mean_ld": cached_entry["surrogate_mean_ld"],
+            "surrogate_uncertainty": cached_entry["surrogate_uncertainty"],
+        }
+
     if cached_entry is not None and cached_entry["cl"] is not None and cached_entry["cd"] is not None:
         return {
             "score": cached_entry["ld"],
@@ -334,7 +356,33 @@ def evaluate_airfoil_details(naca, model=None):
         with counter_lock:
             ml_predictions += 1
         surrogate_used = True
-        surrogate_mean_ld, surrogate_uncertainty = predict_ld_with_uncertainty(model, naca)
+        surrogate_mean_ld, surrogate_uncertainty = predict_with_uncertainty(model, naca)
+        if (
+            surrogate_mean_ld is not None
+            and surrogate_uncertainty is not None
+            and surrogate_mean_ld < SURROGATE_SKIP_LD_THRESHOLD
+            and surrogate_uncertainty < SURROGATE_SKIP_UNCERTAINTY_THRESHOLD
+        ):
+            with counter_lock:
+                ml_skips += 1
+
+            fitness_cache[naca] = {
+                "cl": None,
+                "cd": None,
+                "ld": float(surrogate_mean_ld),
+                "evaluation_type": "skipped",
+                "surrogate_mean_ld": float(surrogate_mean_ld),
+                "surrogate_uncertainty": float(surrogate_uncertainty),
+            }
+            return {
+                "score": float(surrogate_mean_ld),
+                "cl": None,
+                "cd": None,
+                "evaluation_type": "skipped",
+                "surrogate_used": True,
+                "surrogate_mean_ld": float(surrogate_mean_ld),
+                "surrogate_uncertainty": float(surrogate_uncertainty),
+            }
 
     with counter_lock:
         xfoil_calls += 1
@@ -398,6 +446,53 @@ def score_design(design, airfoil_details):
     target_time = MISSION["target_flight_time"]
 
     if base_cd in (None, 0) or cl <= 0:
+        if airfoil_details.get("evaluation_type") == "skipped" and base_ld is not None:
+            approx_lift = estimate_lift(design)
+            constraint_satisfied = approx_lift >= weight
+            surrogate_score = float(base_ld)
+            if not constraint_satisfied:
+                return {
+                    "score": 0,
+                    "mission_fitness": 0,
+                    "time_score": 0,
+                    "lift": approx_lift,
+                    "drag": 0,
+                    "power": None,
+                    "weight": weight,
+                    "battery_weight": battery_weight(battery_wh),
+                    "battery_energy_j": battery_energy_j(battery_wh),
+                    "flight_time_s": None,
+                    "flight_time_min": None,
+                    "lift_margin": approx_lift - weight,
+                    "constraint_satisfied": False,
+                    "aspect_ratio": aspect_ratio,
+                    "base_ld": 0,
+                    "base_cd": None,
+                    "total_cd": None,
+                    "realism_penalty": 1.0,
+                }
+
+            return {
+                "score": surrogate_score,
+                "mission_fitness": surrogate_score,
+                "time_score": 0,
+                "lift": approx_lift,
+                "drag": 0,
+                "power": None,
+                "weight": weight,
+                "battery_weight": battery_weight(battery_wh),
+                "battery_energy_j": battery_energy_j(battery_wh),
+                "flight_time_s": None,
+                "flight_time_min": None,
+                "lift_margin": approx_lift - weight,
+                "constraint_satisfied": True,
+                "aspect_ratio": aspect_ratio,
+                "base_ld": surrogate_score,
+                "base_cd": None,
+                "total_cd": None,
+                "realism_penalty": 1.0,
+            }
+
         return {
             "score": 0,
             "mission_fitness": 0,
@@ -777,6 +872,8 @@ def run_ga():
             "xfoil_calls": xfoil_calls,
             "ml_predictions": ml_predictions,
             "ml_skips": ml_skips,
+            "xfoil_reduction_count": ml_skips,
+            "xfoil_reduction_pct": 0.0,
             "generation_xfoil_calls": 0,
             "generation_predictions": 0,
             "generation_ml_skips": 0,
@@ -892,6 +989,8 @@ def run_ga():
                 "xfoil_calls": xfoil_calls,
                 "ml_predictions": ml_predictions,
                 "ml_skips": ml_skips,
+                "xfoil_reduction_count": ml_skips,
+                "xfoil_reduction_pct": (ml_skips / ml_predictions * 100.0) if ml_predictions else 0.0,
                 "generation_xfoil_calls": xfoil_calls - generation_xfoil_before,
                 "generation_predictions": ml_predictions - generation_predictions_before,
                 "generation_ml_skips": ml_skips - generation_skips_before,
@@ -978,7 +1077,41 @@ def run_ga():
         MISSION["target_speed"],
         DEFAULT_BATTERY_WH,
     )
-    baseline_airfoil_details = evaluate_airfoil_details(baseline_design["airfoil"], model)
+    baseline_airfoil_details = get_cached_airfoil_entry(baseline_design["airfoil"])
+    if not (
+        baseline_airfoil_details is not None
+        and baseline_airfoil_details["cl"] is not None
+        and baseline_airfoil_details["cd"] is not None
+    ):
+        cl, cd = run_xfoil(baseline_design["airfoil"])
+        if cl is None or cd is None or cd == 0:
+            baseline_airfoil_details = {
+                "score": 0,
+                "cl": 0,
+                "cd": None,
+                "evaluation_type": "simulated",
+                "surrogate_used": False,
+                "surrogate_mean_ld": None,
+                "surrogate_uncertainty": None,
+            }
+        else:
+            ld = cl / cd
+            if cl < 0 or cl > 2.0:
+                ld *= 0.2
+            if cd < 0.003 or cd > 0.05:
+                ld *= 0.2
+            if ld > 250:
+                ld *= 0.2
+            baseline_airfoil_details = {
+                "score": ld,
+                "cl": cl,
+                "cd": cd,
+                "evaluation_type": "simulated",
+                "surrogate_used": False,
+                "surrogate_mean_ld": None,
+                "surrogate_uncertainty": None,
+            }
+            fitness_cache[baseline_design["airfoil"]] = {"cl": cl, "cd": cd, "ld": ld}
     baseline_result = score_design(baseline_design, baseline_airfoil_details)
     save_fitness_cache()
     runtime = time.time() - start_time
@@ -997,6 +1130,8 @@ def run_ga():
     print("Total XFOIL simulations:", xfoil_calls)
     print("ML predictions:", ml_predictions)
     print("ML skipped designs:", ml_skips)
+    print("XFOIL calls reduced by ML:", ml_skips)
+    print("ML skip rate (%):", round((ml_skips / ml_predictions * 100.0) if ml_predictions else 0.0, 2))
     print("Cache size:", len(fitness_cache))
     print("Runtime:", runtime, "seconds")
 
@@ -1051,6 +1186,8 @@ def run_ga():
             "xfoil_calls": xfoil_calls,
             "ml_predictions": ml_predictions,
             "ml_skips": ml_skips,
+            "xfoil_reduction_count": ml_skips,
+            "xfoil_reduction_pct": (ml_skips / ml_predictions * 100.0) if ml_predictions else 0.0,
             "runtime_seconds": runtime,
         }
     )
@@ -1080,6 +1217,8 @@ def run_ga():
         f.write(f"XFOIL calls: {xfoil_calls}\n")
         f.write(f"ML predictions: {ml_predictions}\n")
         f.write(f"ML skips: {ml_skips}\n")
+        f.write(f"XFOIL calls reduced by ML: {ml_skips}\n")
+        f.write(f"ML skip rate (%): {((ml_skips / ml_predictions) * 100.0) if ml_predictions else 0.0}\n")
         f.write(f"Cache size: {len(fitness_cache)}\n")
         f.write(f"Runtime: {runtime}\n")
     

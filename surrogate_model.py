@@ -70,3 +70,12 @@ def predict_ld_with_uncertainty(model, naca):
     mean = np.mean(predictions)
     std = np.std(predictions)
     return mean, std
+
+
+def predict_with_uncertainty(model, design):
+    if isinstance(design, dict):
+        naca = design.get("airfoil", "")
+    else:
+        naca = design
+
+    return predict_ld_with_uncertainty(model, naca)

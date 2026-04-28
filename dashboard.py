@@ -405,6 +405,8 @@ def render_dashboard(
     best_lift_margin = state.get("best_lift_margin")
     best_power = state.get("best_power")
     best_battery_wh = state.get("best_battery_wh", state.get("battery_capacity_Wh"))
+    xfoil_reduction_count = state.get("xfoil_reduction_count", 0)
+    xfoil_reduction_pct = state.get("xfoil_reduction_pct", 0)
     mission_payload = state.get("mission_payload")
     mission_time = state.get("mission_time")
     mission_speed = state.get("mission_speed")
@@ -576,14 +578,15 @@ def render_dashboard(
         )
 
     if not beginner_mode:
-        stat1, stat2, stat3, stat4 = st.columns(4)
+        stat1, stat2, stat3, stat4, stat5 = st.columns(5)
         stat1.metric(
             "Fitness Score",
             f"{best_adjusted_fitness:.2f}" if best_adjusted_fitness is not None else "-",
         )
         stat2.metric("Best Lift", f"{best_lift:.2f}" if best_lift is not None else "-")
         stat3.metric("Real Simulations", state.get("xfoil_calls", 0))
-        stat4.metric("AI Predictions", state.get("ml_predictions", 0))
+        stat4.metric("ML Predictions", state.get("ml_predictions", 0))
+        stat5.metric("XFOIL Reduction", f"{xfoil_reduction_count} ({xfoil_reduction_pct:.1f}%)")
 
         stats_col1, stats_col2, stats_col3, stats_col4 = st.columns(4)
         stats_col1.metric("Designs This Generation", len(population_frame))
@@ -592,15 +595,15 @@ def render_dashboard(
             f"{state.get('runtime_seconds', 0):.1f}" if state.get("runtime_seconds") else "-",
         )
         stats_col3.metric("Status", status.title())
-        stats_col4.metric("Early Rejects", state.get("ml_skips", 0))
+        stats_col4.metric("ML Skips", state.get("ml_skips", 0))
 
         if explain_mode:
             st.info(
                 "Fitness Score = ranking score used by the optimizer. "
                 "Best Lift = how much upward force the best wing produces. "
                 "Real Simulations = expensive physics runs. "
-                "AI Predictions = model guesses used to speed things up. "
-                "Early Rejects = weak designs skipped before full simulation."
+                "ML Predictions = model guesses used to speed things up. "
+                "ML Skips = weak designs skipped before full simulation."
             )
 
     st.markdown("")
@@ -663,7 +666,7 @@ def render_dashboard(
                 if column in chart_frame.columns
             ]
             if len(surrogate_columns) > 1:
-                st.subheader("AI / Surrogate Details")
+                st.subheader("ML / Surrogate Details")
                 st.dataframe(
                     chart_frame[surrogate_columns],
                     width="stretch",
@@ -733,7 +736,7 @@ def render_dashboard(
             if explain_mode:
                 st.info(
                 "These counters summarize only the current generation: "
-                    "full simulations and AI predictions for the airfoil analysis."
+                    "full simulations and ML predictions for the airfoil analysis."
                 )
             counter_cols = st.columns(3)
             counter_cols[0].metric("Simulated", state.get("generation_xfoil_calls", 0))
@@ -775,6 +778,8 @@ def render_dashboard(
                 "xfoil_calls": state.get("xfoil_calls", 0),
                 "ml_predictions": state.get("ml_predictions", 0),
                 "ml_skips": state.get("ml_skips", 0),
+                "xfoil_reduction_count": xfoil_reduction_count,
+                "xfoil_reduction_pct": xfoil_reduction_pct,
                 "generation_xfoil_calls": state.get("generation_xfoil_calls", 0),
                 "generation_predictions": state.get("generation_predictions", 0),
                 "generation_ml_skips": state.get("generation_ml_skips", 0),
