@@ -1,7 +1,12 @@
 import random
 import copy
 from genetic_optimizer import (
-    score_design, generate_random_design, evaluate_airfoil_details,
+    compute_chord,
+    compute_reynolds,
+    generate_random_design,
+    evaluate_airfoil_details,
+    is_valid_reynolds,
+    score_design,
     SPAN_MIN, SPAN_MAX, AREA_MIN, AREA_MAX, 
     VELOCITY_MIN, VELOCITY_MAX, BATTERY_MIN_WH, BATTERY_MAX_WH,
     USE_SURROGATE, train_model
@@ -59,10 +64,16 @@ def run_pso():
     for iteration in range(ITERATIONS):
         for p in particles:
             design = clamp_design(p["position"])
-            # Airfoil details are needed for scoring
-            airfoil_details = evaluate_airfoil_details(design["airfoil"], model)
-            result = score_design(design, airfoil_details)
-            fitness = result["mission_fitness"]
+            chord = compute_chord(design["wing_area"], design["wing_span"])
+            reynolds = compute_reynolds(design["velocity"], chord)
+            if not is_valid_reynolds(reynolds):
+                fitness = 0
+                result = {"mission_fitness": 0}
+            else:
+                # Airfoil details are needed for scoring.
+                airfoil_details = evaluate_airfoil_details(design["airfoil"], model, reynolds=reynolds)
+                result = score_design(design, airfoil_details, chord=chord, reynolds=reynolds)
+                fitness = result["mission_fitness"]
 
             if fitness > p["best_fitness"]:
                 p["best_fitness"] = fitness

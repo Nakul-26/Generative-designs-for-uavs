@@ -12,8 +12,12 @@ except ImportError:
 CACHE_FILE = Path("airfoil_cache.json")
 
 
+def normalize_airfoil_key(airfoil):
+    return airfoil.split("|", 1)[0].strip()
+
+
 def parse_naca(naca):
-    digits = naca.replace("NACA ", "")
+    digits = normalize_airfoil_key(naca).replace("NACA ", "")
 
     camber = int(digits[0])
     position = int(digits[1])
@@ -34,7 +38,10 @@ def load_dataset():
 
     for airfoil, entry in data.items():
         ld = entry["ld"] if isinstance(entry, dict) else entry
-        features = parse_naca(airfoil)
+        try:
+            features = parse_naca(airfoil)
+        except (IndexError, ValueError):
+            continue
         X.append(features)
         y.append(ld)
 
@@ -54,7 +61,7 @@ def train_model():
     if len(X) < 10:
         return None
 
-    model = RandomForestRegressor(n_estimators=100)
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
     model.fit(X, y)
     return model
 
